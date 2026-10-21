@@ -113,3 +113,40 @@ describe('dashboard content schemas degrade instead of collapsing', () => {
     ]);
   });
 });
+
+describe('org node: optional person fields (founder, start, move, photo)', () => {
+  const parse = (extra: Record<string, unknown>) =>
+    teamOrgContentSchema.parse({ nodes: [{ id: '1', name: 'Ada', role: 'CEO', group: 'exec', parentId: null, bio: '', ...extra }] }).nodes[0]!;
+
+  it('parses a node without any of them (today\'s data) and leaves them unset', () => {
+    const node = parse({});
+    expect(node.isFounder).toBeUndefined();
+    expect(node.startedAt ?? null).toBeNull();
+    expect(node.move ?? null).toBeNull();
+    expect(node.photoUrl ?? null).toBeNull();
+  });
+
+  it('keeps a sourced move, a start month, a founder flag and a photo address', () => {
+    const node = parse({
+      isFounder: true, startedAt: '2026-03', photoUrl: 'https://commons.example/ada.jpg',
+      move: { kind: 'joined', date: '2026-03', sourceUrl: 'https://news.example/ada', supportingQuote: 'Ada joined in March.' },
+    });
+    expect(node.isFounder).toBe(true);
+    expect(node.startedAt).toBe('2026-03');
+    expect(node.photoUrl).toBe('https://commons.example/ada.jpg');
+    expect(node.move).toMatchObject({ kind: 'joined', sourceUrl: 'https://news.example/ada' });
+  });
+
+  it('drops a move that has no source address: no source, no move', () => {
+    expect(parse({ move: { kind: 'joined', date: '2026-03' } }).move).toBeNull();
+    expect(parse({ move: { kind: 'joined', date: '2026-03', sourceUrl: 'not a url' } }).move).toBeNull();
+    expect(parse({ move: { kind: 'teleported', date: '2026-03', sourceUrl: 'https://news.example/x' } }).move).toBeNull();
+  });
+
+  it('never fails the whole node over a malformed optional field', () => {
+    const node = parse({ isFounder: 'yes', startedAt: 7, photoUrl: 'nope' });
+    expect(node.name).toBe('Ada');
+    expect(node.isFounder).toBeUndefined();
+    expect(node.photoUrl).toBeNull();
+  });
+});

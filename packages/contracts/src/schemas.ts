@@ -459,6 +459,27 @@ export const orgNodeSchema = z.object({
   sourceUrl: z.string().url().nullable().optional().catch(null),
   supportingQuote: prose().nullable().optional().catch(null),
   sourceRetrievedAt: isoTimestamp.nullable().optional().catch(null),
+  /** True only when a quoted source calls this person a founder or co-founder. */
+  isFounder: z.boolean().optional().catch(undefined),
+  /** ISO month (or day) this person started in the role, only when a source states it. */
+  startedAt: z.string().min(1).nullable().optional().catch(null),
+  /**
+   * A reported change to this person's position. No source URL, no move: an
+   * unreadable or unsourced move parses to null and the UI shows nothing.
+   */
+  move: z
+    .object({
+      kind: z.enum(['joined', 'promoted', 'role_change', 'departed']),
+      /** ISO month or day, as reported. */
+      date: z.string().min(1),
+      sourceUrl: z.string().url(),
+      supportingQuote: prose().nullable().optional(),
+    })
+    .nullable()
+    .optional()
+    .catch(null),
+  /** A verified, licensed headshot only. Never inferred, never generated. */
+  photoUrl: z.string().url().nullable().optional().catch(null),
 });
 /**
  * Tolerant to the model returning the node list bare instead of wrapped in

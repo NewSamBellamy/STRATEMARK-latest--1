@@ -1,9 +1,10 @@
 /**
- * LeaderGrid — the human face of the org chart.
+ * LeaderGrid — the Starting five: the human face of the team page.
  *
- * A row of framed portrait cards above the reporting-lines graph: headshot,
- * name, role. Hover reveals the person's sourced background; click opens the
- * full profile with grounded dig-deeper.
+ * A compact strip above the board with the founders and chiefs, in rank order
+ * (see orgRank): headshot, full name, full title. Hover or keyboard focus
+ * reveals the person's sourced background; click opens the full profile with
+ * grounded dig-deeper.
  *
  * Headshot honesty: photos come from Wikipedia's public REST API and are used
  * ONLY when the article summary actually mentions the company — a mismatched
@@ -16,6 +17,7 @@ import { cn } from '@/lib/cn';
 import { fetchWikidataHeadshot } from '@/lib/media/wikidataHeadshot';
 import { loadPersisted, makeLimiter, savePersisted } from '@/lib/media/headshotCache';
 import { LruCache, fetchWithTimeout } from '@/lib/media/lookupCache';
+import { startingFive } from './orgRank';
 
 export interface Headshot {
   thumb: string;
@@ -278,7 +280,7 @@ function LeaderCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group/leader relative flex w-[104px] shrink-0 flex-col items-center gap-1.5 rounded-xl border border-transparent p-2 text-center transition-colors hover:border-border hover:bg-surface-2"
+      className="group/leader relative flex min-w-0 flex-col items-center gap-1.5 rounded-xl border border-transparent p-2 text-center transition-colors hover:border-border hover:bg-surface-2 focus-visible:border-border focus-visible:bg-surface-2"
     >
       <span
         className={cn(
@@ -300,15 +302,15 @@ function LeaderCard({
           </span>
         )}
       </span>
-      <span className="w-full truncate text-[12px] font-semibold leading-tight text-content">
+      <span className="w-full break-words text-[12.5px] font-semibold leading-tight text-content">
         {person.name}
       </span>
-      <span className="w-full truncate text-[10.5px] leading-tight text-muted">{person.role}</span>
+      <span className="w-full break-words text-[11px] leading-snug text-muted">{person.role}</span>
 
       {/* Hover profile — the sourced background, in place. */}
       {/* Left-aligned (not centered): a centered popover on a card near the
           screen's left edge clipped half of every line off-screen. */}
-      <span className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-60 max-w-[70vw] rounded-lg border border-border bg-surface p-3 text-left shadow-card group-hover/leader:block">
+      <span className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-60 max-w-[70vw] rounded-lg border border-border bg-surface p-3 text-left shadow-card group-hover/leader:block group-focus-visible/leader:block">
         <span className="block text-[12px] font-semibold text-content">{person.name}</span>
         <span className="block text-[11px] text-muted">{person.role}</span>
         <span className="mt-1.5 block text-[11px] leading-relaxed text-content/85">
@@ -327,22 +329,23 @@ export function LeaderGrid({
   nodes,
   companyName,
   onOpenPerson,
+  max = 5,
 }: {
   nodes: OrgNode[];
   companyName: string;
   onOpenPerson: (id: string) => void;
+  /** How many people the strip names. */
+  max?: number;
 }) {
-  // Exec row first, then everyone else in stored order.
-  const ordered = [...nodes].sort((a, b) =>
-    a.group === b.group ? 0 : a.group === 'exec' ? -1 : b.group === 'exec' ? 1 : 0,
-  );
-  if (ordered.length === 0) return null;
+  // When the whole team fits in the strip, the board already shows everyone.
+  if (nodes.length <= max) return null;
+  const ordered = startingFive(nodes, max);
   return (
-    <div className="panel mb-4 overflow-visible p-3">
+    <div className="panel overflow-visible p-3" role="group" aria-label="Starting five">
       <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted">
-        Leadership · {ordered.length} people
+        Starting five · founders and chiefs
       </p>
-      <div className="flex flex-wrap gap-1">
+      <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
         {ordered.map((p) => (
           <LeaderCard
             key={p.id}

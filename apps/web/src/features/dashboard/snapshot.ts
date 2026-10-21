@@ -5,6 +5,7 @@
  */
 import type { CompanyMetric, HistoryContent, LiveIntelItem, MetricType, MissionGovernanceContent, OrgNode } from '@mi/contracts';
 import { comparableKnown, type PeerEntry } from './dashboardModel';
+import { rankRole, sortByRank } from './tabs/orgRank';
 
 type Round = NonNullable<MissionGovernanceContent['fundingRounds']>[number];
 type Investor = NonNullable<MissionGovernanceContent['investors']>[number];
@@ -74,24 +75,16 @@ export function fundingSnapshot(rounds: readonly Round[], investors: readonly In
   return { latest, roundCount: rounds.length, leads: leads.slice(0, 4) };
 }
 
-const ROLE_RANK: Array<[RegExp, number]> = [
-  [/\b(?:ceo|chief executive)\b/i, 0],
-  [/\b(?:co-?founder|founder)\b/i, 1],
-  [/\bpresident\b/i, 2],
-  [/\b(?:cto|chief technology|chief scientist|chief research)\b/i, 3],
-  [/\b(?:cfo|coo|cpo|cmo|chief)\b/i, 4],
-];
-const roleRank = (role: string) => ROLE_RANK.find(([pattern]) => pattern.test(role))?.[1] ?? 9;
-
-/** The people a reader would name first: the top of the reported org, by role. */
+/**
+ * The people a reader would name first: founders and the CEO, then the other
+ * chiefs, ordered by rankRole (the same order as the Team tab's leadership
+ * strip). Founders count whatever function they were filed under: a co-founder
+ * tagged "AI & research" is still leadership.
+ */
 export function leadershipSnapshot(nodes: readonly OrgNode[], max = 4): OrgNode[] {
-  const execs = nodes.filter((node) => node.group === 'exec');
-  const pool = execs.length > 0 ? execs : nodes.filter((node) => node.parentId === null);
-  return pool
-    .map((node, index) => ({ node, index }))
-    .sort((a, b) => roleRank(a.node.role) - roleRank(b.node.role) || a.index - b.index)
-    .slice(0, max)
-    .map((row) => row.node);
+  const lead = nodes.filter((node) => node.group === 'exec' || rankRole(node) <= 1);
+  const pool = lead.length > 0 ? lead : nodes.filter((node) => node.parentId === null);
+  return sortByRank(pool).slice(0, max);
 }
 
 export interface NewsMood { positive: number; neutral: number; negative: number; total: number }

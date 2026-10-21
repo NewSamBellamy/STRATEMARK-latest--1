@@ -34,7 +34,7 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
   await page.getByRole('link', { name: 'Metrics' }).click();
   await expect(page.getByText('ARR').first()).toBeVisible();
   await page.getByRole('link', { name: 'Team & Org Chart' }).click();
-  await expect(page.locator('.react-flow')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Org board' })).toBeVisible();
 });
 
 test('culture and vice tabs open signal research instead of company dashboards', async ({ page }) => {

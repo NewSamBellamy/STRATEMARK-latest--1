@@ -60,6 +60,23 @@ describe('PersonProfile', () => {
     }
   });
 
+  it('leaves the name and role to the modal title when asked not to repeat them', () => {
+    renderWithProviders(
+      <PersonProfile people={people} selectedId="a" onSelect={vi.fn()} company={company} onAsk={vi.fn()} showHeading={false} />,
+      { repository: makeRepo() },
+    );
+    expect(screen.queryByRole('heading', { name: 'Ada Lovelace' })).not.toBeInTheDocument();
+  });
+
+  it('footnotes the career rows to a numbered source, and says plainly when no page was retained', () => {
+    renderWithProviders(
+      <PersonProfile people={people} selectedId="a" onSelect={vi.fn()} company={company} onAsk={vi.fn()} />,
+      { repository: makeRepo() },
+    );
+    expect(screen.getByText(/No source link/)).toBeInTheDocument();
+    expect(screen.getByText(/\(source 1, listed below\)/)).toBeInTheDocument();
+  });
+
   it('hands the person to Ask when asked', async () => {
     const onAsk = vi.fn();
     const { user } = renderWithProviders(

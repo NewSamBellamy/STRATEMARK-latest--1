@@ -19,6 +19,7 @@ const PAGES: Array<[string, string, string]> = [
   ['opportunity', '/#/markets/mkt_frontier-ai-ecosystem_s248s/opportunity', 'text=where the gap is'],
   ['briefing', '/#/markets/mkt_frontier-ai-ecosystem_s248s/briefing', 'h1:has-text("Daily Briefing")'],
   ['deck settings', '/#/markets/mkt_frontier-ai-ecosystem_s248s/settings', 'text=Deck settings'],
+  ['dashboard: team board', '/#/company/cmp_openai_5sz16/dashboard/team_org', 'text=Starting five'],
   ['dashboard: history', '/#/company/cmp_openai_5sz16/dashboard/history', 'h1:has-text("OpenAI")'],
   ['dashboard: products', '/#/company/cmp_openai_5sz16/dashboard/products_roadmap', 'h1:has-text("OpenAI")'],
   ['dashboard: live intel', '/#/company/cmp_openai_5sz16/dashboard/live_intel', 'h1:has-text("OpenAI")'],

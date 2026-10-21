@@ -7,11 +7,9 @@ import { HistoryTab } from './HistoryTab';
 vi.mock('./LeaderGrid', () => ({
   WikiAvatar: ({ name }: { name: string }) => <span>{name.charAt(0)}</span>,
   LeaderGrid: () => <div data-testid="leader-grid" />,
-}));
-vi.mock('@xyflow/react', () => ({
-  ReactFlow: ({ nodes }: { nodes: unknown[] }) => <div data-testid="org-graph">{nodes.length} nodes</div>,
-  Background: () => null, Controls: () => null, Handle: () => null,
-  Position: { Top: 'top', Bottom: 'bottom' },
+  useWikiHeadshot: () => null,
+  photoCredit: () => '',
+  initialsOf: (n: string) => n.charAt(0),
 }));
 
 function repoWith(tab: string, content: unknown) {
@@ -27,18 +25,40 @@ const orgNodes = [
 ];
 
 describe('team & org tab', () => {
-  it('defaults to the chart, toggles to the list and remembers the choice', async () => {
+  it('defaults to the board, toggles to the list and remembers the choice', async () => {
     localStorage.removeItem('mi.teamOrgView');
     const { user } = renderWithProviders(<TeamOrgTab companyId="cmp" />, {
       repository: repoWith('team_org', { nodes: orgNodes }),
     });
-    expect(await screen.findByTestId('org-graph')).toHaveTextContent('2 nodes');
-    expect(screen.getByRole('button', { name: 'chart' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('group', { name: 'Org board' })).toBeInTheDocument();
+    expect(document.querySelectorAll('[data-person-id]')).toHaveLength(2);
+    expect(document.querySelectorAll('path[data-string]')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'board' })).toHaveAttribute('aria-pressed', 'true');
     await user.click(screen.getByRole('button', { name: 'list' }));
-    expect(screen.queryByTestId('org-graph')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Org board' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Collapse Ada Lovelace/ })).toBeInTheDocument();
     expect(localStorage.getItem('mi.teamOrgView')).toBe('list');
     localStorage.removeItem('mi.teamOrgView');
+  });
+
+  it('migrates the old "chart" view choice to the board', async () => {
+    localStorage.setItem('mi.teamOrgView', 'chart');
+    renderWithProviders(<TeamOrgTab companyId="cmp" />, { repository: repoWith('team_org', { nodes: orgNodes }) });
+    expect(await screen.findByRole('group', { name: 'Org board' })).toBeInTheDocument();
+    localStorage.removeItem('mi.teamOrgView');
+  });
+
+  it('disables Moving with the reason when no sourced move exists, and says so when search finds no one', async () => {
+    localStorage.removeItem('mi.teamOrgView');
+    const { user } = renderWithProviders(<TeamOrgTab companyId="cmp" />, { repository: repoWith('team_org', { nodes: orgNodes }) });
+    await screen.findByRole('group', { name: 'Org board' });
+    const moving = screen.getByRole('button', { name: /Moving/ });
+    expect(moving).toBeDisabled();
+    expect(moving.parentElement).toHaveAttribute('title', 'No sourced moves in this research');
+    await user.type(screen.getByLabelText('Search people'), 'zzzz');
+    expect(await screen.findByText(/No one matches/)).toBeInTheDocument();
+    await user.click(screen.getAllByRole('button', { name: 'Clear search' }).at(-1)!);
+    expect(screen.getByLabelText('Search people')).toHaveValue('');
   });
 
   it('charts reporting lines, collapses a branch and filters by search (list view)', async () => {
