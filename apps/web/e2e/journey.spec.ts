@@ -29,9 +29,9 @@ test('1. New Deck page: prompt box, suggestion chips, beta bar', async ({ page }
   await page.goto('/#/');
   await expect(page.getByPlaceholder('Describe a market…')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Research this market' })).toBeVisible();
-  // Six suggestion chips from the first/any set.
+  // Six suggestion chips from one of the four sets (the page picks the set at random).
   const chip = page.getByRole('button', {
-    name: /Christian apparel companies|Space infrastructure companies|AI code-review startups|Independent game studios|Climate-risk software/,
+    name: /Christian apparel companies|Space infrastructure companies|AI code-review startups|Independent game studios|Climate-risk software|Private credit platforms|Robotics foundation models|Sustainable packaging companies|AI-native accounting software/,
   });
   await expect(chip.first()).toBeVisible();
   // The beta bar only exists in the hosted build; the bare preview has no hosted API.
