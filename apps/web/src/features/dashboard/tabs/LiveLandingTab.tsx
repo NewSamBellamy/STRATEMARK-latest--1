@@ -3,6 +3,7 @@ import { ClipboardCheck, ExternalLink, Globe, Loader2, MonitorPlay } from 'lucid
 import { useNavigate } from 'react-router-dom';
 import { useAuditSite, useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
+import { useReadOnly } from '@/lib/readOnly';
 import { HydratingPanel } from './HydratingPanel';
 import { EmptyNote, SectionHeader } from './TabKit';
 import {
@@ -128,11 +129,14 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
   // doesn't work" bug. The screenshot is the dependable default everywhere
   // (web, Electron, embeds); the iframe is a button away when allowed.
   const [tryEmbed, setTryEmbed] = useState(false);
+  // A shared page never loads another site inside it, and never researches or audits: it only shows what was shared.
+  const readOnly = useReadOnly();
 
   return (
     <QueryBoundary query={query} loading={<HydratingPanel label="Live Landing Page" />}>
       {(result) => {
-        const { url, embeddable, screenshotUrl } = result.content;
+        const { url, screenshotUrl } = result.content;
+        const embeddable = result.content.embeddable && !readOnly;
         if (!/^https?:\/\//.test(url)) {
           return (
             <EmptyNote title="No official website recorded">
@@ -148,7 +152,7 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
               description={`${name}’s own site as it looks right now, captured for a first-hand read of how they present themselves. Audit the messaging or open the site directly.`}
               actions={
               <div className="flex items-center gap-1">
-                <button
+                {!readOnly && <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-content disabled:opacity-60"
                   title="A full review of this page: what works, what's missing and what to test, saved as a report with screenshots you can export as PDF. Uses one search on your key."
@@ -166,7 +170,7 @@ export function LiveLandingTab({ companyId }: { companyId: string }) {
                     <ClipboardCheck className="h-3.5 w-3.5" />
                   )}
                   {audit.isPending ? 'Auditing…' : 'Audit this page'}
-                </button>
+                </button>}
                 {embeddable && (
                   <button
                     type="button"

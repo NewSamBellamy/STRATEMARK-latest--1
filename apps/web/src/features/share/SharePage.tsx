@@ -8,8 +8,6 @@
 import { sourceHref } from '@/lib/sourceHref';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { ExternalLink, Layers, Link2Off, MapPin } from 'lucide-react';
 import {
   METRIC_TYPE_LABELS,
@@ -23,6 +21,7 @@ import { BriefingReport, type BriefingView } from '@/features/briefing/BriefingR
 import { Logo } from '@/features/card/Logo';
 import { ConfidenceBadge } from '@/features/card/ConfidenceBadge';
 import { Modal } from '@/components/ui/Modal';
+import { BoundedMarkdown } from '@/components/BoundedMarkdown';
 import { FullPageLoader } from '@/components/states/FullPageLoader';
 import { formatMetricValue } from '@/lib/format';
 import { siteUrl } from '@/lib/siteUrl';
@@ -304,9 +303,7 @@ function SharedReportView({
 
           <div className="markdown">
             {/* Strip a leading H1 if the model repeated the title — the masthead owns it. */}
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {r.md.replace(/^#\s[^\n]*\n+/, '')}
-            </ReactMarkdown>
+            <BoundedMarkdown text={r.md.replace(/^#\s[^\n]*\n+/, '')} />
           </div>
 
           {r.c.length > 0 && (

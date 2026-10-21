@@ -128,7 +128,21 @@ describe('the preview picture', () => {
     const layout = ogLayout(snap);
     expect(layout.title).toBe('A sourced claim');
     expect(layout.slots).toEqual([]);
-    expect(shareMeta(snap).title).toBe('A sourced claim: sourced research on Stratemark');
+    expect(shareMeta(snap).title).toBe('Vice: A sourced claim');
+  });
+
+  it('gives a signal card with no title of its own a headline from its finding, never a generic "A card"', () => {
+    const base = snapshot();
+    const culture = { ...base.cards[0]!, id: 'card_c', cardType: 'culture' as const, title: null, summary: 'Sunrun Inc. states its core mission is "to create a planet run by the sun" by providing locally generated energy. It also publishes a values charter.', tier: null };
+    const snap = snapshot({ cards: [culture as never], focusCardId: 'card_c' });
+    const meta = shareMeta(snap);
+    expect(meta.title).toMatch(/^Culture: Sunrun Inc\. states its core mission is "to create a planet run by the sun" by( providing)?…$/);
+    expect(meta.description).toContain('It also publishes a values charter.');
+    expect(ogLayout(snap).title).toMatch(/^Sunrun Inc\. states its core mission is "to create a planet run by the sun" by( providing)?…$/);
+    expect(ogLayout(snap).eyebrow).toBe('CULTURE');
+    const bare = snapshot({ cards: [{ ...culture, summary: null, keyPoints: [] } as never], focusCardId: 'card_c' });
+    expect(shareMeta(bare).title).toBe('Culture: a sourced finding');
+    expect(ogLayout(bare).title).toBe('');
   });
 
   it('draws a deck as a stack of its first companies', () => {

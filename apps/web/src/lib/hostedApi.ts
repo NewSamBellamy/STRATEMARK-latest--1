@@ -27,6 +27,17 @@ export function hasHostedApi(): boolean {
   return /^https:\/\//.test(HOSTED_API_URL) || (import.meta.env.DEV && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(HOSTED_API_URL));
 }
 
+/**
+ * The Worker that stores share links. The research relay above is off in a share page, but the page still
+ * reads its own share from here (one GET by id), so this one is set in every build.
+ */
+export const SHARE_API_URL: string = String(import.meta.env.VITE_STRATEMARK_API_URL ?? '').trim().replace(/\/+$/, '');
+
+/** True when a Worker is configured to store share links (https, or localhost while developing). */
+export function hasShareApi(apiUrl: string = SHARE_API_URL): boolean {
+  return /^https:\/\//.test(apiUrl) || (import.meta.env.DEV && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(apiUrl));
+}
+
 export function hostedUrl(path: string): string {
   return `${HOSTED_API_URL}/v1/${path.replace(/^\/+/, '')}`;
 }
