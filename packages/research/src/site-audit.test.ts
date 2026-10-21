@@ -164,7 +164,7 @@ describe('generateReport — deck reports gate on a baked deck', () => {
       updatedAt: new Date().toISOString(), reportId: null,
       messages: [
         { id: 'm1', role: 'user', text: 'Who is winning?', citations: [], createdAt: new Date().toISOString() },
-        { id: 'm2', role: 'assistant', text: 'OpenAI leads on distribution.', citations: [], createdAt: new Date().toISOString() },
+        { id: 'm2', role: 'assistant', text: 'OpenAI leads on distribution.', citations: [{ title: 'Reuters', url: 'https://www.reuters.com/openai' }], createdAt: new Date().toISOString() },
       ],
     }] as unknown as RepoSnapshot['threads'];
     const repo = repoWith({ ground, structure } as unknown as LlmClient, snap);

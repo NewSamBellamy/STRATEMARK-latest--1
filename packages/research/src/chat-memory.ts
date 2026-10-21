@@ -8,7 +8,7 @@ import type { RepoSnapshot } from './repository';
 import { cardIdsForThread, cardMemory } from './card-memory';
 import { buildChatPrompt, type AnswerSize, type LastTime } from './chat-context';
 import { chatEvidenceFromAnswer } from './chat-writeback';
-import { fitPassages, passageIsRelevant, resolveMemoryAnswer, type MemoryAnswer, type StoredPassage } from './chat-route';
+import { fitPassages, isFreshPassage, passageIsRelevant, resolveMemoryAnswer, type MemoryAnswer, type StoredPassage } from './chat-route';
 import { CHAT_SYSTEM } from './prompts';
 import { searchEvidenceCorpus, type ScoredPassage } from './retrieval';
 import type { ResearchEvidence } from './research-evidence';
@@ -47,8 +47,10 @@ export function compareArchive(
 
 export interface ChatMemory {
   lastTime: LastTime | null;
-  /** The card's stored passages relevant to this question, ready to read. Archive passages first. */
+  /** The card's stored passages relevant to this question AND captured within the last 14 days, ready to read. Archive passages first. */
   passages: StoredPassage[];
+  /** Relevant passages older than that: context for a fresh search, never an answer served as current. */
+  stale: StoredPassage[];
 }
 
 /** What the card remembers: the previous conversation (gist), and passages from the archive, the card's brief and its newest reports. */
@@ -59,6 +61,7 @@ export function gatherChatMemory(
   archive: readonly ScoredPassage[],
   /** A head-to-head: the card's briefs and reports are read whatever the question's words, as the question is generic. */
   compare = false,
+  now: Date = new Date(),
 ): ChatMemory {
   const cardIds = cardIdsForThread(thread, snap);
   const memories = cardIds.map((id) => cardMemory(snap, id));
@@ -77,6 +80,7 @@ export function gatherChatMemory(
     label: `${p.companyName ?? p.companyId ?? 'research'}, ${p.topic}, captured ${p.capturedAt.slice(0, 10)}`,
     text: p.snippet,
     citations: p.citations,
+    capturedAt: p.capturedAt,
   }));
   const extra: StoredPassage[] = [];
   for (const cardId of cardIds) {
@@ -87,6 +91,7 @@ export function gatherChatMemory(
         label: `brief for this card, built ${brief.builtAt.slice(0, 10)}`,
         text: [brief.lead, ...brief.points.map((pt) => `- ${pt.text}`)].join('\n'),
         citations: brief.sources,
+        capturedAt: brief.builtAt,
       });
     }
   }
@@ -94,9 +99,10 @@ export function gatherChatMemory(
   for (const report of memories.flatMap((m) => m.reports).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))) {
     if (seenReports.has(report.id) || seenReports.size >= 2) continue;
     seenReports.add(report.id);
-    extra.push({ id: `R${seenReports.size}`, label: `report "${report.title}", ${report.createdAt.slice(0, 10)}`, text: summaryOf(report.markdown), citations: report.citations });
+    extra.push({ id: `R${seenReports.size}`, label: `report "${report.title}", ${report.createdAt.slice(0, 10)}`, text: summaryOf(report.markdown), citations: report.citations, capturedAt: report.createdAt });
   }
-  return { lastTime, passages: [...passages, ...(compare ? extra : extra.filter((p) => passageIsRelevant(question, p)))] };
+  const relevant = [...passages, ...(compare ? extra : extra.filter((p) => passageIsRelevant(question, p)))];
+  return { lastTime, passages: relevant.filter((p) => isFreshPassage(p, now)), stale: relevant.filter((p) => !isFreshPassage(p, now)) };
 }
 
 const memoryReplySchema = z.object({
@@ -165,8 +171,12 @@ export function keepFreshEvidence(
       threadId: thread.id, answerText: answer.text, grounding: answer.grounding,
       companies, cardIdFor: cardFor, queries: answer.queries,
     });
-    if (records.length) snap.researchEvidence = [...(snap.researchEvidence ?? []), ...records];
-    return records;
+    // A sentence already kept for that company is not kept again: copies would pass for separate passages.
+    const key = (companyId: string | null | undefined, text: string) => `${companyId ?? ''}|${text.replace(/\s+/g, ' ').trim().toLowerCase()}`;
+    const have = new Set((snap.researchEvidence ?? []).filter((e) => e.topic.startsWith('chat:')).map((e) => key(e.companyId, e.text)));
+    const added = records.filter((r) => { const k = key(r.companyId, r.text); if (have.has(k)) return false; have.add(k); return true; });
+    if (added.length) snap.researchEvidence = [...(snap.researchEvidence ?? []), ...added];
+    return added;
   } catch {
     return [];
   }

@@ -139,4 +139,13 @@ describe('signalBriefOutSchema', () => {
   it('tolerates a malformed model reply', () => {
     expect(signalBriefOutSchema.parse({ lead: 3, points: ['x', { text: 'ok', sourceIndex: 'a' }, null] })).toEqual({ lead: '', points: [{ text: 'ok', sourceIndex: null }] });
   });
+
+  it('a barrier point that adds a claim of its own to a sourced sentence is dropped', async () => {
+    const padded = `${LICENCE.slice(0, -1)}, and violators are sent to prison for five years without any appeal or review whatsoever.`;
+    const { client } = fake(LICENCE, [{ text: LICENCE, url: REG, title: 'Regulator' }], {
+      lead: '', points: [{ text: padded, sourceIndex: 1 }, { text: LICENCE, sourceIndex: 1 }],
+    });
+    const brief = await researchSignalBrief(args('barrier', null, client));
+    expect(brief.points.map((p) => p.text)).toEqual([LICENCE]);
+  });
 });

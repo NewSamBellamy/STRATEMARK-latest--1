@@ -6,12 +6,17 @@
  * - `memory`: one ungrounded call over what the card already knows. Its citations come only from the stored passages it names.
  */
 import { usableCitations, type Citation } from '@mi/contracts';
-import { allowedFigures, dropUntraceableFigures, sanitizeSectionMarkdown } from './report-topics';
+import { wordsOf } from './claim-support';
+import { CONTROVERSY } from './risk-claims';
+import { allowedFigures, dropUntraceableFigures, hasUntraceableFigure, sanitizeSectionMarkdown } from './report-topics';
 
 export type ChatRoute = 'greeting' | 'fresh' | 'memory';
 
 /** At least this many relevant stored passages are needed before the card answers from memory. */
 export const MIN_MEMORY_PASSAGES = 2;
+/** Stored research older than this is never served as current: the question is searched afresh (the owner's 14-day rule). */
+export const MEMORY_MAX_AGE_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
 /** What the memory call may read on top of the existing deck digest. */
 export const MEMORY_MAX_CHARS = 6000;
 
@@ -41,6 +46,16 @@ export interface StoredPassage {
   label: string;
   text: string;
   citations: readonly Citation[];
+  /** When the research behind it was captured (ISO). A passage with no readable date is not fresh. */
+  capturedAt?: string;
+}
+
+/** Whether a stored passage is recent enough to answer from. A missing, unreadable or future-dated capture time is not fresh. */
+export function isFreshPassage(passage: Pick<StoredPassage, 'capturedAt'>, now: Date = new Date()): boolean {
+  const at = passage.capturedAt ? Date.parse(passage.capturedAt) : Number.NaN;
+  if (!Number.isFinite(at)) return false;
+  const age = now.getTime() - at;
+  return age >= -DAY_MS && age <= MEMORY_MAX_AGE_DAYS * DAY_MS;
 }
 
 const STOP = new Set(['the', 'and', 'for', 'what', 'how', 'this', 'that', 'with', 'are', 'was', 'does', 'about', 'company', 'tell', 'them', 'they', 'their']);
@@ -69,6 +84,43 @@ export function fitPassages(passages: readonly StoredPassage[], maxChars = MEMOR
     size += entry.length + 2;
   }
   return { block: lines.join('\n\n'), used };
+}
+
+/** Least distinctive words a sentence needs before it is held to the passages; a shorter one is a connective or a heading. */
+const CLAIM_WORDS_MIN = 3;
+const SHARED_WITH_PASSAGES_MIN = 2;
+const SHARE_OF_SENTENCE_MIN = 0.5;
+const LIST_PREFIX = /^(\s*(?:[-*+]|\d+[.)])\s+)(.*)$/;
+
+/**
+ * Drops every sentence the named passages do not account for. The passage ids only say where the sources come from: without
+ * this check a sentence about something the passages never mention (a lawsuit, another company's news) would be shown with
+ * the named passages' sources beside it. A sentence that reads like a controversy needs a passage that does too.
+ */
+export function dropUnsupportedSentences(markdown: string, passageTexts: readonly string[]): { markdown: string; removed: number } {
+  const known = new Set(passageTexts.flatMap((t) => [...wordsOf(t)]));
+  const controversial = passageTexts.some((t) => CONTROVERSY.test(t));
+  let removed = 0;
+  const supported = (sentence: string): boolean => {
+    const words = [...wordsOf(sentence)];
+    if (words.length < CLAIM_WORDS_MIN) return true;
+    if (CONTROVERSY.test(sentence) && !controversial) return false;
+    const shared = words.filter((w) => known.has(w)).length;
+    return shared >= SHARED_WITH_PASSAGES_MIN && shared / words.length >= SHARE_OF_SENTENCE_MIN;
+  };
+  const out: string[] = [];
+  for (const raw of markdown.split(/\r?\n/)) {
+    if (!raw.trim() || /^\s*(?:#{1,6}\s|\||```)/.test(raw)) { out.push(raw); continue; }
+    const list = LIST_PREFIX.exec(raw);
+    const prefix = list ? list[1]! : '';
+    const kept = (list ? list[2]! : raw).split(/(?<=[.!?])\s+(?=[A-Z0-9"“(*_])/).filter((s) => {
+      const ok = supported(s);
+      if (!ok) removed += 1;
+      return ok;
+    });
+    if (kept.length) out.push(`${prefix}${kept.join(' ')}`);
+  }
+  return { markdown: out.join('\n'), removed };
 }
 
 export interface MemoryReply {
@@ -101,13 +153,28 @@ export function resolveMemoryAnswer(reply: MemoryReply | null | undefined, passa
   const body = m ? reply.answer.slice(0, m.index) : reply.answer;
   const tail = m ? reply.answer.slice(m.index).trim() : '';
   const guarded = dropUntraceableFigures(sanitizeSectionMarkdown(body), allowed);
-  const text = guarded.markdown.trim();
+  const supported = dropUnsupportedSentences(guarded.markdown, named.map((p) => p.text));
+  const text = supported.markdown.trim();
   if (!text) return null;
   const followUps = tail && !/\d/.test(tail) ? sanitizeSectionMarkdown(tail) : '';
   return {
     text: followUps ? `${text}\n\n${followUps}` : text,
     citations: usableCitations(named.flatMap((p) => p.citations.slice(0, 6).map((c) => ({ ...c })))),
     passageIds: named.map((p) => p.id),
-    removed: guarded.removed,
+    removed: guarded.removed + supported.removed,
   };
+}
+
+/**
+ * Removes every sentence whose figures are explained only by what the analyst typed: a figure in a question (hearsay) that
+ * the stored research and the sourced answers do not state. Figures a fresh search adds are not touched.
+ */
+export function dropQuestionOnlyFigures(markdown: string, questions: string, sourced: readonly string[]): string {
+  const fromQuestions = allowedFigures(questions);
+  const fromResearch = allowedFigures(...sourced);
+  return markdown.split(/\r?\n/).flatMap((line) => {
+    const kept = line.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(*_])/).filter((s) =>
+      !(hasUntraceableFigure(s, fromResearch) && !hasUntraceableFigure(s, fromQuestions)));
+    return kept.length ? [kept.join(' ')] : line.trim() ? [] : [line];
+  }).join('\n');
 }

@@ -40,7 +40,7 @@ export interface ClaimScope {
 }
 
 // Letters and digits of any script count (a claim written in Cyrillic or Greek has words too); accents are removed.
-const wordsOf = (text: string, ignore?: ReadonlySet<string>): Set<string> => new Set(
+export const wordsOf = (text: string, ignore?: ReadonlySet<string>): Set<string> => new Set(
   text.toLowerCase().normalize('NFKD').replace(/\p{M}+/gu, '').replace(/[^\p{L}\p{N}%$.]+/gu, ' ').split(/\s+/)
     .map((word) => word.replace(/^[.$]+|[.]+$/g, ''))
     .filter((word) => word.length >= 4 && !STOP_WORDS.has(word) && !ignore?.has(word)),

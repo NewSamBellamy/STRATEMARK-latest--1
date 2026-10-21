@@ -1047,7 +1047,7 @@ export interface MarketIntelRepository {
   /** A stored signal-card brief, or null when none was built. Never researches. OPTIONAL — engines holding research locally. */
   peekSignalBrief?(cardId: string): Promise<SignalBrief | null>;
   /** Build (or, with `force`, rebuild) a signal card's sourced brief and keep it. Spends research credits, so only on request. OPTIONAL. */
-  researchSignalBrief?(input: { cardId: string; force?: boolean }): Promise<SignalBrief>;
+  researchSignalBrief?(input: { cardId: string; force?: boolean; /** Aborted when the card is closed: a build still waiting for a slot (or not yet started) is dropped; one already paid for finishes. */ signal?: AbortSignal }): Promise<SignalBrief>;
   /** A card's conversations, reports and brief in one read. Never researches. OPTIONAL. */
   getCardMemory?(cardId: string): Promise<CardMemory>;
   getResearchThread?(id: string): Promise<ResearchThread | null>;

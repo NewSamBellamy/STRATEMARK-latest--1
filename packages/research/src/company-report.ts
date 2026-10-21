@@ -105,7 +105,7 @@ export interface CompanyReportDeps {
 export interface CompanyReportOptions {
   focus?: string | null;
   /** The analyst's earlier research session: its sourced findings, already filtered to turns with usable sources. */
-  conversation?: { text: string; citations: Citation[] } | null;
+  conversation?: { text: string; citations: Citation[]; /** Only the sourced findings (no analyst questions): the text a figure may be traced to. Defaults to `text`. */ found?: string } | null;
 }
 
 export interface CompanyReportResult {
@@ -257,6 +257,8 @@ export async function buildCompanyTopicReport(
     const today = nowDate().toISOString().slice(0, 10);
     const focus = (options.focus ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const conversation = options.conversation?.text.trim().slice(0, CONVERSATION_PROMPT_CHARS) ?? '';
+    // An analyst's own question is not research: a figure typed into one does not license the writer to state it.
+    const conversationFound = (options.conversation?.found ?? options.conversation?.text ?? '').trim().slice(0, CONVERSATION_PROMPT_CHARS);
     const conversationCitations = cleanCitations(options.conversation?.citations, company.websiteUrl);
     const baseMetrics = client.metrics?.();
     const base = baseMetrics ? snapshotAggregate(baseMetrics) : undefined;
@@ -376,7 +378,7 @@ export async function buildCompanyTopicReport(
         } else {
           // The guard: a statement carrying a figure the digest, the findings and the conversation cannot account for does not ship.
           // The gaps text and the dates inside the digest are deliberately NOT allowed to license free-standing numbers.
-          const allowed = allowedFigures(state.digest, state.findings, conversation, company.name, label, today.slice(0, 4));
+          const allowed = allowedFigures(state.digest, state.findings, conversationFound, company.name, label, today.slice(0, 4));
           const guarded = dropUntraceableFigures(sanitizeSectionMarkdown(drafted), allowed);
           if (guarded.removed > 0) {
             gaps.push(`${guarded.removed} statement${guarded.removed === 1 ? ' was' : 's were'} left out because a figure in ${guarded.removed === 1 ? 'it' : 'them'} could not be traced to the research`);

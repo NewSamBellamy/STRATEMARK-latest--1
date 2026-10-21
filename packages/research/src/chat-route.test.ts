@@ -30,6 +30,22 @@ const P: StoredPassage[] = [
   { id: 'A2', label: 'Acme, team', text: 'Acme has 120 employees.', citations: [{ url: 'https://stored.example/a2', title: 'Two' }] },
 ];
 
+describe('resolveMemoryAnswer: a sentence the named passages do not state is not shown with their sources', () => {
+  it('drops a claim about something the passage never mentions, even with no figure in it', () => {
+    const out = resolveMemoryAnswer({ answerable: true, answer: 'Acme raised $40M in 2025. Acme was sued for fraud by state regulators.', passageIds: ['A1'] }, P)!;
+    expect(out.text).toContain('$40M');
+    expect(out.text).not.toMatch(/sued|fraud/i);
+    expect(out.removed).toBe(1);
+  });
+  it('is not an answer when nothing it says is in the passages', () => {
+    expect(resolveMemoryAnswer({ answerable: true, answer: 'Beta Corp is under investigation by regulators over product safety.', passageIds: ['A1'] }, P)).toBeNull();
+  });
+  it('keeps a plain paraphrase of the passage', () => {
+    const out = resolveMemoryAnswer({ answerable: true, answer: 'In 2025 Acme raised $40M, in a Series B round.', passageIds: ['A1'] }, P)!;
+    expect(out.text).toContain('Series B');
+  });
+});
+
 describe('resolveMemoryAnswer', () => {
   it('cites only the stored passages it names, and never a URL the model wrote', () => {
     const out = resolveMemoryAnswer({ answerable: true, answer: 'Acme raised $40M ([x](https://evil.example/x)) see https://evil.example/y.', passageIds: ['A1'] }, P)!;

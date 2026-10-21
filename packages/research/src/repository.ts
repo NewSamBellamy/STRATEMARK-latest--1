@@ -124,7 +124,7 @@ import {
 } from './semantic-memory';
 import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest, FIGURE_DATE_RULE } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
-import { cardIdsForThread, cardMemory, reportStamp, requestThreadIds } from './card-memory';
+import { cardIdsForThread, cardMemory, isReadableThread, reportStamp, requestThreadIds } from './card-memory';
 import type { Ownership } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
@@ -226,7 +226,7 @@ import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { answerSize, buildChatPrompt, formatCompanyBlock, formatDeckRankings, isGreeting } from './chat-context';
-import { routeChat } from './chat-route';
+import { dropQuestionOnlyFigures, routeChat } from './chat-route';
 import { answerFromMemory, answerGreeting, compareArchive, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
@@ -3021,6 +3021,41 @@ export class GeminiRepository implements MarketIntelRepository {
     return run;
   }
 
+  /** At most this many brief builds run at once per workspace; the rest wait in order. */
+  private static readonly SIGNAL_BRIEF_SLOTS = 2;
+  private signalBriefActive = 0;
+  private readonly signalBriefWaiting: Array<{ start: () => void }> = [];
+
+  /** A build waits for a free slot; a card closed meanwhile (its signal aborted) is dropped before it pays for anything. */
+  private queueSignalBrief(cardId: string, signal?: AbortSignal): Promise<SignalBrief> {
+    return new Promise<SignalBrief>((resolve, reject) => {
+      const cancelled = () => Object.assign(new Error('The card was closed before its report was started.'), { name: 'BriefCancelled' });
+      const entry = {
+        start: () => {
+          signal?.removeEventListener('abort', onAbort);
+          if (signal?.aborted) { reject(cancelled()); return; }
+          this.signalBriefActive += 1;
+          this.runSignalBrief(cardId).then(resolve, reject).finally(() => {
+            this.signalBriefActive -= 1;
+            this.pumpSignalBriefs();
+          });
+        },
+      };
+      const onAbort = () => {
+        const at = this.signalBriefWaiting.indexOf(entry);
+        if (at >= 0) { this.signalBriefWaiting.splice(at, 1); reject(cancelled()); }
+      };
+      if (signal?.aborted) { reject(cancelled()); return; }
+      if (this.signalBriefActive < GeminiRepository.SIGNAL_BRIEF_SLOTS) { entry.start(); return; }
+      signal?.addEventListener('abort', onAbort, { once: true });
+      this.signalBriefWaiting.push(entry);
+    });
+  }
+
+  private pumpSignalBriefs(): void {
+    while (this.signalBriefActive < GeminiRepository.SIGNAL_BRIEF_SLOTS && this.signalBriefWaiting.length > 0) this.signalBriefWaiting.shift()!.start();
+  }
+
   /** The stored brief only; never researches. */
   async peekProductBrief(companyId: string, productName: string): Promise<ProductBrief | null> {
     return this.storedProductBrief(companyId, productKey(productName ?? ''));
@@ -3056,7 +3091,7 @@ export class GeminiRepository implements MarketIntelRepository {
    * and spends nothing. Two requests for one card share one build; a failed build (or a card deleted meanwhile) stores
    * nothing and keeps any earlier brief.
    */
-  researchSignalBrief(input: { cardId: string; force?: boolean }): Promise<SignalBrief> {
+  researchSignalBrief(input: { cardId: string; force?: boolean; signal?: AbortSignal }): Promise<SignalBrief> {
     const cardId = input.cardId;
     const running = this.signalBriefRuns.get(cardId);
     if (running) return running;
@@ -3064,7 +3099,7 @@ export class GeminiRepository implements MarketIntelRepository {
       const stored = this.storedSignalBrief(cardId);
       if (stored) return Promise.resolve(stored);
     }
-    const run = this.runSignalBrief(cardId).finally(() => {
+    const run = this.queueSignalBrief(cardId, input.signal).finally(() => {
       if (this.signalBriefRuns.get(cardId) === run) this.signalBriefRuns.delete(cardId);
     });
     this.signalBriefRuns.set(cardId, run);
@@ -5886,20 +5921,23 @@ export class GeminiRepository implements MarketIntelRepository {
    * The sourced half of a research conversation, for folding into a topic report: every question the analyst
    * asked, but only the answers that carried at least one usable source (an unsourced answer is not evidence).
    */
-  private reportConversation(threadIds: string[]): { text: string; citations: Citation[] } | null {
+  private reportConversation(threadIds: string[]): { text: string; citations: Citation[]; found: string } | null {
     const parts: string[] = [];
     const citations: Citation[] = [];
+    const found: string[] = [];
     for (const threadId of threadIds) {
       const thread = this.snap.threads.find((t) => t.id === threadId);
-      if (!thread) continue;
+      if (!isReadableThread(thread)) continue;
       const kept = thread.messages.filter((m) => m.role === 'user' || usableCitations(m.citations ?? []).length > 0);
       if (!kept.some((m) => m.role === 'assistant')) continue;
       const lines = kept.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n');
       parts.push(threadIds.length > 1 ? `CONVERSATION "${thread.title}":\n${lines}` : lines);
       citations.push(...kept.flatMap((m) => m.citations ?? []));
+      const answers = kept.filter((m) => m.role !== 'user').map((m) => m.text).join('\n');
+      found.push(threadIds.length > 1 ? `CONVERSATION "${thread.title}":\n${answers}` : answers);
     }
     if (parts.length === 0) return null;
-    return { text: parts.join('\n\n').slice(0, 8000), citations: usableCitations(citations) };
+    return { text: parts.join('\n\n').slice(0, 8000), citations: usableCitations(citations), found: found.join('\n\n').slice(0, 8000) };
   }
 
   /**
@@ -6008,9 +6046,10 @@ export class GeminiRepository implements MarketIntelRepository {
       cards: structuredClone(cards),
       viceClaims: structuredClone([...cardIds].flatMap((cardId) => this.sourcedViceClaims(cardId))),
       dashboards,
-      signalBriefs: Object.fromEntries(Object.entries(this.snap.signalBriefs ?? {})
-        .filter(([id]) => cardIds.has(id) && !isEntityCardType(this.snap.cards.find((c) => c.id === id)?.cardType ?? 'company'))
-        .map(([id, brief]) => [id, structuredClone(brief)])),
+      // Only briefs that pass the schema (every point sourced) leave the machine; a stored row that does not is not shared.
+      signalBriefs: Object.fromEntries([...cardIds]
+        .filter((id) => !isEntityCardType(this.snap.cards.find((c) => c.id === id)?.cardType ?? 'company'))
+        .flatMap((id) => { const brief = this.storedSignalBrief(id); return brief ? [[id, structuredClone(brief)] as const] : []; })),
     };
   }
 
@@ -6086,16 +6125,13 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     const focus = (request.focus ?? '').trim();
+    // Only the sourced answers are folded in (never the analyst's questions or unsourced turns), as in the topic report.
     const conversationThreads = requestThreadIds(request)
       .map((id) => this.snap.threads.find((t) => t.id === id))
-      .filter((t): t is ResearchThread => Boolean(t));
-    const conversation = conversationThreads
-      .map((thread) => {
-        const lines = thread.messages.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n');
-        return conversationThreads.length > 1 ? `CONVERSATION "${thread.title}":\n${lines}` : lines;
-      })
-      .join('\n\n')
-      .slice(0, 8000);
+      .filter(isReadableThread);
+    const found = this.reportConversation(conversationThreads.map((t) => t.id))?.found ?? '';
+    const conversation = found ? `RESEARCH FOUND:\n${found}` : '';
+    const questions = conversationThreads.flatMap((t) => t.messages.filter((m) => m.role === 'user').map((m) => m.text)).join('\n');
 
     const g = await this.client.ground(
       [
@@ -6118,7 +6154,7 @@ export class GeminiRepository implements MarketIntelRepository {
       { system: GROUNDED_SYSTEM },
     );
 
-    const markdown = await this.elevate(g.text, 'report', title);
+    const markdown = await this.elevate(dropQuestionOnlyFigures(g.text, questions, [digest, found]), 'report', title);
     const evidenceCitations = usableCitations(
       this.snap.metrics.flatMap((metric) => metric.citations).concat(g.citations),
     );
@@ -6690,6 +6726,7 @@ ${references}`
 
   listResearchThreads(filter?: { deckId?: string; companyId?: string; cardId?: string }): Promise<ResearchThread[]> {
     const out = this.snap.threads
+      .filter(isReadableThread)
       .filter((t) => (filter?.cardId ? cardIdsForThread(t, this.snap).includes(filter.cardId) : true))
       .filter((t) => (filter?.deckId ? t.scope.deckId === filter.deckId : true))
       .filter((t) => (filter?.companyId ? t.scope.companyId === filter.companyId : true))
