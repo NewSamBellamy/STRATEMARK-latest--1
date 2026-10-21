@@ -153,22 +153,36 @@ const CardGridItem = memo(function CardGridItem({
   const readOnly = useReadOnly();
   const onShare = useCallback(() => onShareCard(data), [onShareCard, data]);
   return (
-    <div className={cn('relative', selectable && 'cursor-pointer')} data-card-id={cardId}>
+    <div
+      className={cn(
+        'relative rounded-2xl',
+        selectable && 'cursor-pointer ring-1 ring-border transition-shadow hover:ring-primary/60',
+        isSelected && 'ring-2 ring-primary ring-offset-2 ring-offset-app hover:ring-primary',
+      )}
+      data-card-id={cardId}
+      data-selected={selectable ? String(isSelected) : undefined}
+    >
       <GameCard
         data={data}
         deckUserValues={deckUserValues}
         deckStatus={deckStatus}
         onOpen={onOpen}
         onShare={readOnly ? undefined : onShare}
-        className={cn(
-          selectable && 'transition-opacity',
-          selectable && !isSelected && 'opacity-80 hover:opacity-100',
-          isSelected && 'ring-2 ring-primary ring-offset-2 ring-offset-app',
-        )}
       />
-      {isSelected && (
-        <span className="pointer-events-none absolute -right-2 -top-2 z-10 grid h-6 w-6 place-items-center rounded-full bg-primary text-white shadow">
-          <Check className="h-3.5 w-3.5" />
+      {/* Selection affordance lives OUTSIDE the card face: a chip in the
+          wrapper, directly under the "Inspect card" row (never over it). */}
+      {selectable && (
+        <span
+          data-testid="select-chip"
+          className={cn(
+            'pointer-events-none mx-auto mb-2 mt-1 flex w-fit items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold',
+            isSelected
+              ? 'border-primary bg-primary text-white'
+              : 'border-border bg-surface text-muted',
+          )}
+        >
+          <Check className={cn('h-3 w-3', !isSelected && 'opacity-40')} aria-hidden="true" />
+          {isSelected ? 'Selected' : 'Select'}
         </span>
       )}
     </div>

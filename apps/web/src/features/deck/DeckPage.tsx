@@ -127,6 +127,24 @@ export default function DeckPage() {
     setCompare(false);
     setSelected(new Set());
   };
+  // Escape leaves Compare, and so does leaving the page (the selection is
+  // local state, so unmounting drops it; the effect also stops listening).
+  useEffect(() => {
+    if (!compare) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setCompare(false);
+        setSelected(new Set());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [compare]);
+  // Navigating to another deck under the same mounted page also clears it.
+  useEffect(() => {
+    setCompare(false);
+    setSelected(new Set());
+  }, [marketId]);
   const askSelected = () => {
     if (!deckId || selected.size === 0) return;
     chat(
@@ -542,6 +560,11 @@ export default function DeckPage() {
                 onSelect={(t) => setSplit(t ? { type: t } : {})}
                 split={split}
               />
+              {compare && actionPolicy.compare && (
+                <p data-testid="compare-instruction" role="status" className="mb-3 text-[12px] font-medium text-primary-ink">
+                  Pick 2 to 4 cards to compare
+                </p>
+              )}
               <div className="mb-4">
                 <p className="text-[12px] text-muted">
                   {filtered.length} {cardCountNoun(defaultType, filtered.length)}
