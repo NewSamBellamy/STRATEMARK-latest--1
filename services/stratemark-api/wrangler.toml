@@ -14,6 +14,19 @@ class_name = "BudgetCounter"
 tag = "v1"
 new_sqlite_classes = ["BudgetCounter"]
 
+# Share links: one object per share (named by its id) and one daily-count ledger.
+[[durable_objects.bindings]]
+name = "SHARES"
+class_name = "ShareVault"
+
+[[durable_objects.bindings]]
+name = "SHARE_QUOTA"
+class_name = "ShareQuota"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ShareVault", "ShareQuota"]
+
 [vars]
 # Browser origins allowed to call the API (full origins or *.host wildcards).
 # Never add a shared-hosting wildcard like *.pages.dev: anyone could host a page there.
@@ -24,6 +37,9 @@ ALLOW_LOCALHOST = "false"
 # list price per model family, so real spend stays at or under these.
 DAILY_BUDGET_USD = "100"
 DAILY_VISITOR_BUDGET_USD = "20"
+
+# Days a share link lives before it deletes itself (1 to 365).
+SHARE_TTL_DAYS = "90"
 
 # Secret (never in this file):  npx.cmd wrangler secret put GEMINI_API_KEY
 

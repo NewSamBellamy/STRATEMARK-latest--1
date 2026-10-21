@@ -1,10 +1,11 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { fileURLToPath, URL } from 'node:url';
 import { localSourcePlugin } from './local-source-plugin';
 import { localGeminiPlugin } from './local-gemini-plugin';
+import { withSharePolicy } from './src/features/share/viewer/csp';
 
 // SINGLEFILE=1 inlines all JS/CSS into one index.html — used to publish a
 // self-contained public demo (works with the user's own key, client-side).
@@ -18,8 +19,13 @@ const base = isElectron || singleFile ? './' : '/';
 // page next to the app in dist/. A share is that page with the shared research embedded.
 export default defineConfig(({ mode }) => {
 const shareBuild = mode === 'share';
+// The share page carries its own content-security policy, written in at build time with the Worker it was built against.
+const sharePolicy = (): Plugin => ({
+  name: 'stratemark-share-csp',
+  transformIndexHtml: (html) => withSharePolicy(html, loadEnv(mode, process.cwd(), '').VITE_STRATEMARK_API_URL ?? process.env.VITE_STRATEMARK_API_URL),
+});
 return {
-  plugins: [react(), localSourcePlugin(), localGeminiPlugin(), ...(singleFile || shareBuild ? [viteSingleFile()] : [])],
+  plugins: [react(), localSourcePlugin(), localGeminiPlugin(), ...(singleFile || shareBuild ? [viteSingleFile()] : []), ...(shareBuild ? [sharePolicy()] : [])],
   base: shareBuild ? './' : base,
   ...(shareBuild
     ? { build: { outDir: 'dist', emptyOutDir: false, rollupOptions: { input: fileURLToPath(new URL('./share.html', import.meta.url)) } } }

@@ -4,6 +4,7 @@
  * from the bare template, or hand-edited.
  */
 import type { ShareSnapshot } from '@mi/contracts';
+import { receiveSnapshot, snapshotWithinLimits } from '@/lib/share/receive';
 
 export const SHARE_DATA_ID = 'stratemark-share-data';
 
@@ -20,7 +21,8 @@ export function isShareSnapshot(value: unknown): value is ShareSnapshot {
     && Array.isArray(v.markets) && Array.isArray(v.decks) && Array.isArray(v.cards)
     && Array.isArray(v.companies) && Array.isArray(v.metrics) && Array.isArray(v.viceClaims)
     && typeof v.dashboards === 'object' && v.dashboards !== null
-    && v.markets.length > 0 && v.decks.length > 0 && v.cards.length > 0;
+    && v.markets.length > 0 && v.decks.length > 0 && v.cards.length > 0
+    && snapshotWithinLimits(v as ShareSnapshot);
 }
 
 export function readEmbeddedShare(doc: Pick<Document, 'getElementById'>): EmbeddedShare {
@@ -29,7 +31,7 @@ export function readEmbeddedShare(doc: Pick<Document, 'getElementById'>): Embedd
   try {
     const parsed = JSON.parse(el.textContent) as { snapshot?: unknown; signupUrl?: unknown };
     const signup = typeof parsed.signupUrl === 'string' && /^https:\/\//i.test(parsed.signupUrl) ? parsed.signupUrl : undefined;
-    return { snapshot: isShareSnapshot(parsed.snapshot) ? parsed.snapshot : null, signupUrl: signup };
+    return { snapshot: isShareSnapshot(parsed.snapshot) ? receiveSnapshot(parsed.snapshot) : null, signupUrl: signup };
   } catch {
     return { snapshot: null, signupUrl: undefined };
   }

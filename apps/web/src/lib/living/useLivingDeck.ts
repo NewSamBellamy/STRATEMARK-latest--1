@@ -33,6 +33,7 @@ import { readAssetSource } from '@/lib/repository/local-source-reader';
 import { invalidateMetricSurfaces } from '@/hooks/data';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { isCommunityDesktop } from '@/lib/settings/runtime';
+import { useReadOnly } from '@/lib/readOnly';
 import { qk } from '@/lib/query/keys';
 import { traceAgent } from '@/lib/agentic/agentTrace';
 import { formatMetricValue } from '@/lib/format';
@@ -223,7 +224,9 @@ export function useLivingDeck(
   );
   const deskCount = companyCards.length;
   const hasKey = useApiKey((state) => state.hasKey);
-  const researchAvailable = !isCommunityDesktop() || hasKey;
+  // A shared copy researches nothing, so its desks never start (and never spin up a ticker worker the share page forbids).
+  const readOnly = useReadOnly();
+  const researchAvailable = !readOnly && (!isCommunityDesktop() || hasKey);
   const canVerify = researchAvailable && typeof repo.verifyMetric === 'function';
   const canVerifyBatch = canVerify && typeof repo.verifyCompanyMetrics === 'function';
   const canHunt = researchAvailable && typeof repo.huntCompanyMetrics === 'function';

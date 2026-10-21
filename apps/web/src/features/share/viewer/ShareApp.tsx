@@ -66,7 +66,7 @@ function ShareShell({ signupUrl, title }: { signupUrl: string; title: string }) 
       </main>
       <footer className="border-t border-border px-4 py-6 text-center sm:px-6">
         <SignUpLine url={signupUrl} />
-        <p className="mt-1 text-[11.5px] text-faint">A read-only copy. Every figure keeps its source; nothing here runs new research.</p>
+        <p className="mt-1 text-[11.5px] text-faint">A read-only copy shared by someone else. Its sources are linked, not re-checked here; nothing runs new research.</p>
       </footer>
     </div>
   );

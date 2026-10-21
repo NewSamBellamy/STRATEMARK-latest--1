@@ -13,7 +13,12 @@ declare module 'cloudflare:workers' {
 
 interface DurableObjectStorage {
   get<T = unknown>(key: string): Promise<T | undefined>;
+  get<T = unknown>(keys: string[]): Promise<Map<string, T>>;
   put<T>(key: string, value: T): Promise<void>;
+  put<T>(entries: Record<string, T>): Promise<void>;
+  deleteAll(): Promise<void>;
+  setAlarm(scheduledTime: number): Promise<void>;
+  deleteAlarm(): Promise<void>;
 }
 interface DurableObjectState { readonly storage: DurableObjectStorage }
 interface DurableObjectId { toString(): string }
