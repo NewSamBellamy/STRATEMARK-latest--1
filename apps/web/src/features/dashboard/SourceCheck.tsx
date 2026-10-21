@@ -63,7 +63,7 @@ export function sourceCheckLines(m: Checked, label: string): string[] {
   if (!a) return [];
   const { currency } = a;
   const when = currency.asOf == null
-    ? (currency.state === 'stale' ? 'The source gives no date for this figure, and the saved page is old' : 'The source gives no date for this figure')
+    ? (currency.state === 'stale' ? `${UNDATED_LEAD}, and the saved page is old` : UNDATED_LEAD)
     : `${currency.asOfSource === 'filing' ? 'Filed' : 'As of'} ${statedMonth(currency.asOf)} (${currency.state === 'stale'
       ? `out of date for ${label.toLowerCase()}: ${Math.floor((currency.ageDays ?? 0) / 30.4375)} months` : currency.state})`;
   const who = a.authority.tier == null ? 'Source not identified'
@@ -98,15 +98,24 @@ const STATUS_TONE: Record<CurrencyState, string> = {
   current: 'text-faint', aging: 'text-muted', stale: 'text-red-700 dark:text-negative', undated: 'text-muted',
 };
 
-export function SourceCheck({ metric, label, className }: { metric: Checked; label: string; className?: string }) {
+/** The first line when the source gives no date: the one a group of figures says once. */
+export const UNDATED_LEAD = 'The source gives no date for this figure';
+
+/**
+ * `groupedUndated`: the group above already says "sources give no dates", so a figure
+ * with exactly that lead shows just "Source check" (the five lines stay one click away).
+ * A figure whose lead differs (for example an old saved page) still shows its own.
+ */
+export function SourceCheck({ metric, label, className, groupedUndated }: { metric: Checked; label: string; className?: string; groupedUndated?: boolean }) {
   const lines = sourceCheckLines(metric, label);
   if (lines.length === 0) return null;
   const status = figureCurrency(metric)!;
+  const leadSaid = groupedUndated && lines[0] === UNDATED_LEAD;
   return (
     <details className={cn('text-[11px] leading-snug text-faint', className)} aria-label={`Source check for ${label}`}>
       <summary className="cursor-pointer list-none">
-        <span className="font-medium text-muted">Source check: </span>
-        <span className={cn(status !== 'current' && STATUS_TONE[status])}>{lines[0]}</span>
+        <span className="font-medium text-muted">Source check{leadSaid ? '' : ': '}</span>
+        {!leadSaid && <span className={cn(status !== 'current' && STATUS_TONE[status])}>{lines[0]}</span>}
       </summary>
       <ul className="mt-0.5 space-y-0.5">{lines.map((line) => <li key={line}>{line}</li>)}</ul>
     </details>

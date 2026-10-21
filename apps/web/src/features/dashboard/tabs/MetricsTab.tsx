@@ -41,6 +41,7 @@ import {
 } from '../dashboardModel';
 import { Section, metricLabel } from '../dashboardKit';
 import { buildFigureSet, currencyCaptionFor, dropRestatedRevenue, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
+import { figureCaveats, rowDates, type FigureCaveats } from '../figureCaveats';
 import { shortCompanyName } from '../companyNames';
 import { SourceCheck } from '../SourceCheck';
 import { usePeers, type PeerState } from '../usePeers';
@@ -413,8 +414,9 @@ function SortHeader({
 }
 
 function MetricTable({
-  rows, selected, onSelect, sort, onSort, peersReady,
+  rows, selected, onSelect, sort, onSort, peersReady, group,
 }: {
+  group: FigureCaveats;
   rows: Row[];
   selected: MetricType | null;
   onSelect: (t: MetricType) => void;
@@ -422,6 +424,9 @@ function MetricTable({
   onSort: (k: SortKey) => void;
   peersReady: boolean;
 }) {
+  // When no source gave a period and every figure was captured the same day, the Period column
+  // would be empty on every row: the group line above the table says it once instead.
+  const showPeriod = !(group.noPeriod && group.record);
   return (
     <div className="panel overflow-hidden">
       <table className="w-full border-collapse text-[13px]">
@@ -431,7 +436,7 @@ function MetricTable({
             <SortHeader label="Figure" k="metric" sort={sort} onSort={onSort} />
             <SortHeader label="Value" k="value" sort={sort} onSort={onSort} />
             <SortHeader label="Source" k="confidence" sort={sort} onSort={onSort} className="hidden sm:table-cell" />
-            <SortHeader label="Period" k="asof" sort={sort} onSort={onSort} className="hidden md:table-cell" />
+            {showPeriod && <SortHeader label="Period" k="asof" sort={sort} onSort={onSort} className="hidden md:table-cell" />}
             <SortHeader label="In deck" k="rank" sort={sort} onSort={onSort} className="hidden whitespace-nowrap text-right sm:table-cell" />
           </tr>
         </thead>
@@ -441,9 +446,11 @@ function MetricTable({
             const isSel = selected === metric.metricType;
             const cite = linkedCitation(metric);
             const trust = figureTrust(metric);
-            const dates = known ? figureDates(metric) : null;
+            const dates = known ? rowDates(metric, group) : null;
             const currency = known ? currencyCaptionFor(metric) : null;
-            const periodLine = dates ? (dates.period ?? 'Period not reported') : null;
+            // Only what differs from the group line above the table; an empty string says nothing.
+            const periodLine = dates ? (dates.period ?? (dates.notReported ? 'Period not reported' : null)) : null;
+            const periodAndRecord = [periodLine, dates?.record].filter(Boolean).join(' · ');
             const rankTitle = `#${rank} of ${ranking.of} companies with this figure`;
             return (
               <tr
@@ -480,13 +487,13 @@ function MetricTable({
                           {publisherOf(cite.url, cite.title)} ↗
                         </a>
                       ) : <span className="block">{metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}</span>}
-                      <span className="block">{trust} · {periodLine}{dates?.record ? ` · ${dates.record}` : ''}</span>
+                      <span className="block">{[trust, periodAndRecord].filter(Boolean).join(' · ')}</span>
                       {rank != null && ranking.of > 1 && <span className="block" title={rankTitle}>#{rank} of {ranking.of} companies with this figure</span>}
                       {currency && <span className="block text-muted">{currency}</span>}
                     </span>
                   )}
                   {/* The Source column is hidden on a phone, so the check sits under the value there. */}
-                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5 max-w-[200px] sm:hidden" />}
+                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5 max-w-[200px] sm:hidden" groupedUndated={group.noPeriod} />}
                 </td>
                 <td className="hidden px-3 py-2.5 sm:table-cell">
                   {/* Publisher and trust word share one line; the caption and the source check follow, each on its own. */}
@@ -507,19 +514,21 @@ function MetricTable({
                       <span className="shrink-0 text-[11px] text-faint">{trust}</span>
                     </span>
                   )}
-                  {known && <span className="block text-[11px] text-faint md:hidden">{periodLine}{dates?.record ? ` · ${dates.record}` : ''}</span>}
+                  {known && periodAndRecord && <span className="block text-[11px] text-faint md:hidden">{periodAndRecord}</span>}
                   {currency && <span className="mt-0.5 block text-[11px] text-muted">{currency}</span>}
-                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5" />}
+                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5" groupedUndated={group.noPeriod} />}
                 </td>
-                <td className="hidden whitespace-nowrap px-3 py-2.5 text-[12px] text-muted md:table-cell">
-                  {/* Two different dates: the period the source reports, and when we captured it. */}
-                  {!known ? '—' : (
-                    <>
-                      <span className="block tabular-nums">{periodLine}</span>
-                      {dates?.record && <span className="block text-[11px] text-faint">{dates.record}</span>}
-                    </>
-                  )}
-                </td>
+                {showPeriod && (
+                  <td className="hidden whitespace-nowrap px-3 py-2.5 text-[12px] text-muted md:table-cell">
+                    {/* Two different dates: the period the source reports, and when we captured it. */}
+                    {!known ? '—' : (
+                      <>
+                        {periodLine && <span className="block tabular-nums">{periodLine}</span>}
+                        {dates?.record && <span className="block text-[11px] text-faint">{dates.record}</span>}
+                      </>
+                    )}
+                  </td>
+                )}
                 <td className="hidden whitespace-nowrap px-3 py-2.5 text-right sm:table-cell">
                   {rank != null && ranking.of > 1
                     ? <span className="text-[12px] tabular-nums text-muted" title={rankTitle}><span className="font-semibold text-content">#{rank}</span> of {ranking.of}</span>
@@ -535,7 +544,7 @@ function MetricTable({
       </table>
       <p className="border-t border-border px-3 py-2.5 text-[11px] leading-snug text-faint">
         In deck: rank among the companies in this deck that have a figure for that row, so the count differs by row.
-        Period is what the source says the figure is for; captured is when we recorded it.
+        {showPeriod && ' Period is what the source says the figure is for; captured is when we recorded it.'}
       </p>
     </div>
   );
@@ -680,6 +689,7 @@ export function MetricsTab({ companyId }: { companyId: string }) {
           missing.find((r) => !r.metric.id.startsWith('gap-')) ?? missing[0];
         const series = seriesQ.data?.content;
         const knownCount = sorted.length;
+        const caveats = figureCaveats(sorted.map((r) => r.metric));
         const unlinkedCount = sorted.filter((r) => r.metric.confidence !== 'user_verified' && !linkedCitation(r.metric)).length;
         // Older stored content predates the quarterly field.
         const quarterly = series?.revenueQuarterly ?? [];
@@ -740,8 +750,10 @@ export function MetricsTab({ companyId }: { companyId: string }) {
             {/* The all-figures view: picking a row (or a "not found" chip) selects that figure in the one panel above. */}
             <div className="space-y-4">
               <div className="min-w-0 space-y-3">
+                {caveats.line && <p className="text-[12px] text-faint">{caveats.line}</p>}
                 {sorted.length > 0 && (
                   <MetricTable
+                    group={caveats}
                     rows={sorted}
                     selected={selectedRow?.metric.metricType ?? null}
                     onSelect={pickFromList}

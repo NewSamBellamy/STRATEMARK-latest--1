@@ -22,7 +22,8 @@ import {
 import { KpiTileSkeleton, Section, metricLabel, useTabHref } from '../dashboardKit';
 import { SourceCheck } from '../SourceCheck';
 import { usePeers } from '../usePeers';
-import { buildFigureSet, currencyCaptionFor, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
+import { buildFigureSet, currencyCaptionFor, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
+import { figureCaveats, rowDates, type FigureCaveats } from '../figureCaveats';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { newestFirst, sourceCoverage, statedNote } from '../overviewTruth';
 import { ArticleReader, TopStories, type StoryCompany } from './LiveIntelTab';
@@ -132,7 +133,7 @@ const KPI_COLUMNS: Record<number, string> = {
  * does not exist stays "Not found yet" (never imputed). The currency is shown
  * as reported; the card face and its figure counter are separate and untouched.
  */
-function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking: PeerRanking | null; href: string }) {
+function FigureTile({ metric, ranking, href, group }: { metric: CompanyMetric; ranking: PeerRanking | null; href: string; group: FigureCaveats }) {
   const type = metric.metricType;
   const label = metricLabel(metric);
   if (!isKnown(metric)) {
@@ -148,7 +149,7 @@ function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking:
     );
   }
   const citation = linkedCitation(metric);
-  const dates = figureDates(metric);
+  const dates = rowDates(metric, group);
   const currency = currencyCaptionFor(metric);
   const estimated = metric.confidence === 'estimated';
   const display = figureDisplay(metric);
@@ -173,11 +174,11 @@ function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking:
         ) : metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}
       </p>
       <p className="mt-0.5 text-[11px] text-faint">
-        {figureTrust(metric)} · {dates.period ? `For ${dates.period}` : 'Period not reported'}
+        {figureTrust(metric)}{dates.period ? ` · For ${dates.period}` : dates.notReported ? ' · Period not reported' : ''}
       </p>
       {dates.record && <p className="text-[11px] text-faint">{dates.record}</p>}
       {currency && <p className="mt-1 text-[11px] leading-snug text-muted">{currency}</p>}
-      <SourceCheck metric={metric} label={label} className="mt-1" />
+      <SourceCheck metric={metric} label={label} className="mt-1" groupedUndated={group.noPeriod} />
       {ranking?.rank != null && ranking.of > 1 && (
         <Link to={href} className="mt-auto pt-2 text-[11px] text-faint hover:text-primary-ink">
           <span className="font-semibold tabular-nums text-content">#{ranking.rank}</span> of {ranking.of} companies with this figure
@@ -300,6 +301,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   );
   const keyFigures = useMemo(() => (figures ? pickKpis(figures.all, 6, 4) : []), [figures]);
   const coverage = useMemo(() => sourceCoverage(keyFigures.filter(isKnown)), [keyFigures]);
+  const caveats = useMemo(() => figureCaveats(keyFigures), [keyFigures]);
 
   const result = query.data;
   const parsed = useMemo(
@@ -330,11 +332,13 @@ export function OverviewTab({ companyId }: { companyId: string }) {
             {keyFigures.map((metric) => {
               const ranking = isKnown(metric) && peerState.status === 'ready'
                 ? rankInDeck(companyId, metric.metricType, peerState.peers) : null;
-              return <FigureTile key={metric.metricType} metric={metric} ranking={ranking}
+              return <FigureTile key={metric.metricType} metric={metric} ranking={ranking} group={caveats}
                 href={href('metrics', { metric: metric.metricType })} />;
             })}
           </div>
-          {coverage && <p className="mt-2 text-[11.5px] text-faint">{coverage}</p>}
+          {(coverage || caveats.line) && (
+            <p className="mt-2 text-[11.5px] text-faint">{[coverage, caveats.line].filter(Boolean).join(' · ')}</p>
+          )}
           </>
         )}
       </Section>
