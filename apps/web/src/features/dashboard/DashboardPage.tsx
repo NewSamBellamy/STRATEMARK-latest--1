@@ -228,15 +228,15 @@ function AgentWorkingPill({ companyId, assembly }: { companyId: string; assembly
     : 'dashboard sections';
   return (
     <span
-      className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted"
+      className="ml-auto flex min-w-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted max-lg:shrink-0"
       title="Desk agents are researching these sections in the background — each finishes and fills in live."
     >
       <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
       </span>
-      Researching {named}…
-      <span className="tabular-nums text-faint">{assembly.filled} of {assembly.total} sections ready</span>
+      <span className="truncate">Researching {named}…</span>
+      <span className="tabular-nums text-faint lg:max-xl:hidden">{assembly.filled} of {assembly.total} sections ready</span>
     </span>
   );
 }
