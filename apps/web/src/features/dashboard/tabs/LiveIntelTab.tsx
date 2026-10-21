@@ -14,7 +14,6 @@ import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { Modal } from '@/components/ui/Modal';
 import { StoryImage, VideoStrip } from '@/components/media/StoryMedia';
-import { Logo } from '@/features/card/Logo';
 import { LiveBadge } from '../LiveBadge';
 import { DigDeeper } from '@/features/deepdive/DeepDive';
 import { formatDate, formatDateTime, formatRelative } from '@/lib/format';
@@ -240,29 +239,8 @@ function IntelRow({
   );
 }
 
-/** Stand-in when a story has no picture: the publisher's mark on a quiet panel. */
+/** The company a story is about (a picture naming a different company is dropped). */
 export interface StoryCompany { name: string; website?: string | null; logoUrl?: string | null }
-
-/** No usable story picture: the company's own logo on a neutral plate (never a generated or unrelated image). */
-function CompanyPlate({ company }: { company: StoryCompany }) {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-surface-2 p-4" data-testid="company-plate">
-      <Logo name={company.name} website={company.website} logoUrl={company.logoUrl} bare className="h-12 w-12 object-contain" />
-    </div>
-  );
-}
-
-function PublisherPlate({ item }: { item: LiveIntelItem }) {
-  const publisher = item.publisher ?? publisherOf(item.url, null);
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-surface-2 to-surface-muted">
-      <span className="inline-flex items-center gap-2 text-[13px] font-medium text-muted">
-        {/^https?:\/\//.test(item.url) && <Favicon url={item.url} className="h-5 w-5 rounded" />}
-        {publisher ?? SOURCE_LABEL[item.source]}
-      </span>
-    </div>
-  );
-}
 
 export function StoryMeta({ item }: { item: LiveIntelItem }) {
   const publisher = item.publisher ?? publisherOf(item.url, null);
@@ -288,16 +266,16 @@ const REST_COLUMNS: Record<number, string> = { 1: 'xl:grid-cols-1', 2: 'xl:grid-
 export function TopStories({ items, onOpen, company }: { items: LiveIntelItem[]; onOpen: (id: string) => void; company?: StoryCompany }) {
   const [lead, ...rest] = featuredStories(items);
   if (!lead) return null;
-  const plate = (item: LiveIntelItem) => (company ? <CompanyPlate company={company} /> : <PublisherPlate item={item} />);
   const subject = company ? { name: company.name, website: company.website } : undefined;
   return (
     <div className="grid gap-4">
       {/* The lead is one wide card (picture beside its text) and the rest sit in a row under it,
           so neither column can leave a hole beside a taller one. */}
       <button type="button" onClick={() => onOpen(lead.id)}
-        className="panel group overflow-hidden text-left transition-shadow hover:shadow-md lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+        className="panel group overflow-hidden text-left transition-shadow hover:shadow-md lg:grid lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:[&:has([data-story-empty])]:grid-cols-1">
+        {/* No picture means no picture block: the card collapses to its text. */}
         <StoryImage pageUrl={lead.url} imageUrl={lead.imageUrl} publisher={lead.publisher} credit
-          className="aspect-[16/9] w-full lg:aspect-auto lg:min-h-[240px]" subject={subject} fallback={plate(lead)} />
+          className="aspect-[16/9] w-full lg:aspect-auto lg:min-h-[240px]" subject={subject} />
         <div className="space-y-1.5 p-5 lg:flex lg:flex-col lg:justify-center">
           <StoryMeta item={lead} />
           <h3 className="text-[18px] font-semibold leading-snug text-content group-hover:text-primary-ink">{lead.title}</h3>
@@ -310,7 +288,7 @@ export function TopStories({ items, onOpen, company }: { items: LiveIntelItem[];
             <button key={item.id} type="button" onClick={() => onOpen(item.id)}
               className="panel group flex gap-3 overflow-hidden p-2.5 text-left transition-shadow hover:shadow-md">
               <StoryImage pageUrl={item.url} imageUrl={item.imageUrl} publisher={item.publisher}
-                className="h-20 w-[120px] shrink-0 rounded-md" subject={subject} fallback={plate(item)} />
+                className="h-20 w-[120px] shrink-0 rounded-md" subject={subject} />
               <div className="min-w-0 space-y-1 py-0.5">
                 <StoryMeta item={item} />
                 <p className="line-clamp-4 text-[13.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</p>

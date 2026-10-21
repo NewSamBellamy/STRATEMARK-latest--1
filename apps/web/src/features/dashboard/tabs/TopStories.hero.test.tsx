@@ -10,15 +10,17 @@ const story = (imageUrl: string | null): LiveIntelItem => ({
 const company = { name: 'Mistral AI', website: 'https://mistral.ai', logoUrl: null };
 
 describe('story hero pictures', () => {
-  it('drops a picture that names another company and shows the company logo plate', () => {
+  it('drops a picture that names another company and shows no placeholder block', () => {
     const { container } = render(<TopStories items={[story('https://cdn.microsoft.com/logo.png')]} onOpen={() => {}} company={company} />);
     expect(container.querySelector('img[src*="microsoft"]')).toBeNull();
-    expect(screen.getByTestId('company-plate')).toBeInTheDocument();
+    expect(screen.queryByTestId('company-plate')).toBeNull();
+    expect(screen.getByText('Microsoft and Mistral expand a deal')).toBeInTheDocument();
   });
 
-  it('shows the company plate (not an empty frame) when the story has no picture', () => {
+  it('collapses to text (no plate, no empty frame) when the story has no picture', () => {
     render(<TopStories items={[{ ...story(null), url: 'not-a-url' }]} onOpen={() => {}} company={company} />);
-    expect(screen.getByTestId('company-plate')).toBeInTheDocument();
+    expect(screen.queryByTestId('company-plate')).toBeNull();
+    expect(screen.getByText('Microsoft and Mistral expand a deal')).toBeInTheDocument();
   });
 
   it('keeps a picture that is the subject’s own', () => {
