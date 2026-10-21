@@ -4,7 +4,6 @@ import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
 import { useCompany, useDashboardTab } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
-import { AiCover } from '@/components/media/AiCover';
 import { InsightReader } from '@/components/reader/InsightReader';
 import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { cn } from '@/lib/cn';
@@ -96,6 +95,107 @@ function ProductsFromResearch({ companyId }: { companyId: string }) {
   );
 }
 
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const FULL_MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+
+/**
+ * End of the period a stated target covers ("2026-03-15", "March 2026",
+ * "Q3 2026", "2026 H2", "2026"), or null when the text is not a date we can
+ * read with confidence. Unreadable text is never guessed at.
+ */
+export function targetEnd(date: string | null | undefined): Date | null {
+  const s = (date ?? '').trim();
+  if (!s) return null;
+  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59);
+    // A date that rolled over (month 13, Feb 31) was not a real date.
+    return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
+  }
+  m = /^(?:Q([1-4])\s+(\d{4})|(\d{4})\s+Q([1-4]))$/i.exec(s);
+  if (m) {
+    const q = Number(m[1] ?? m[4]);
+    return new Date(Number(m[2] ?? m[3]), q * 3, 0, 23, 59, 59);
+  }
+  m = /^(?:H([12])\s+(\d{4})|(\d{4})\s+H([12]))$/i.exec(s);
+  if (m) {
+    const h = Number(m[1] ?? m[4]);
+    return new Date(Number(m[2] ?? m[3]), h * 6, 0, 23, 59, 59);
+  }
+  m = /^([A-Za-z]{3,9})\.?\s+(\d{4})$/.exec(s);
+  if (m) {
+    const word = m[1]!.toLowerCase();
+    const mi = MONTHS.findIndex((mo) => word === mo || FULL_MONTHS[MONTHS.indexOf(mo)] === word || (word === 'sept' && mo === 'sep'));
+    if (mi >= 0) return new Date(Number(m[2]), mi + 1, 0, 23, 59, 59);
+  }
+  m = /^(\d{4})$/.exec(s);
+  if (m) return new Date(Number(m[1]), 12, 0, 23, 59, 59);
+  return null;
+}
+
+/** True only when a readable stated target date is already behind us. */
+export function isPastDue(date: string | null | undefined, now: Date): boolean {
+  const end = targetEnd(date);
+  return end !== null && end.getTime() < now.getTime();
+}
+
+/** Dense one-line-per-product view: name, description, status, source. */
+function ProductTable({ products, onOpen }: { products: Product[]; onOpen: (p: Product) => void }) {
+  return (
+    <div className="panel overflow-x-auto p-0">
+      <table className="w-full text-left text-[13px]">
+        <thead>
+          <tr className="border-b border-border bg-surface-2/60 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint">
+            <th className="px-3 py-2">Product</th>
+            <th className="hidden px-3 py-2 md:table-cell">Description</th>
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Source</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.map((p) => {
+            const hasUrl = !!p.url && /^https?:\/\//.test(p.url);
+            const desc = p.description ? splitSearchReport(p.description).text : '';
+            return (
+              <tr key={p.name} className="cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-2/50" onClick={() => onOpen(p)}>
+                <td className="px-3 py-1.5 font-medium text-content md:whitespace-nowrap">
+                  <button type="button" className="text-left" onClick={(e) => { e.stopPropagation(); onOpen(p); }}>{p.name}</button>
+                </td>
+                <td className="hidden max-w-0 px-3 py-1.5 text-muted md:table-cell md:w-full">
+                  <span className="block truncate" title={desc || undefined}>{desc || 'No description retained.'}</span>
+                </td>
+                <td className="whitespace-nowrap px-3 py-1.5">
+                  {p.status ? (
+                    <span className={cn('chip py-0.5 text-[11px]', STATUS_STYLE[p.status])}>{STATUS_LABEL[p.status]}</span>
+                  ) : (
+                    <span className="text-faint">-</span>
+                  )}
+                </td>
+                <td className="whitespace-nowrap px-3 py-1.5">
+                  {hasUrl ? (
+                    <a
+                      href={p.url!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 text-[11px] text-primary-ink hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {hostOf(p.url!) ?? 'Source'}
+                    </a>
+                  ) : (
+                    <span className="text-[11px] text-faint">Source not recorded</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'products_roadmap');
   const companyRecord = useCompany(companyId).data;
@@ -104,6 +204,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const [openRoadmap, setOpenRoadmap] = useState<RoadmapItem | null>(null);
   const [status, setStatus] = useState<ProductStatus | 'all'>('all');
   const [search, setSearch] = useState('');
+  const [view, setView] = useState<'cards' | 'table' | null>(null);
   return (
     <QueryBoundary query={query} loading={<HydratingPanel label="Products & Roadmap" />}>
       {(result) => {
@@ -113,6 +214,12 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
           if (p.status) acc[p.status] = (acc[p.status] ?? 0) + 1;
           return acc;
         }, {});
+        // The tab's own recorded research capture date; null stamps nothing.
+        const statedOn = result.lastRefreshedAt
+          ? new Date(result.lastRefreshedAt).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+          : null;
+        // Dense table by default for a long lineup; the reader can switch.
+        const viewMode = view ?? (c.products.length > 8 ? 'table' : 'cards');
         const products = c.products.filter(
           (p) =>
             (status === 'all' || p.status === status) &&
@@ -160,6 +267,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                           className="w-full sm:w-56"
                         />
                       )}
+                      {Object.keys(statusCounts).length > 1 && (
                       <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by status">
                         <FilterChip active={status === 'all'} onClick={() => setStatus('all')} count={c.products.length}>
                           All
@@ -172,6 +280,11 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             </FilterChip>
                           ))}
                       </div>
+                      )}
+                      <div className="ml-auto flex items-center gap-1.5" role="group" aria-label="Product layout">
+                        <FilterChip active={viewMode === 'cards'} onClick={() => setView('cards')}>Cards</FilterChip>
+                        <FilterChip active={viewMode === 'table'} onClick={() => setView('table')}>Table</FilterChip>
+                      </div>
                     </div>
                   )}
                   {products.length === 0 ? (
@@ -179,6 +292,9 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                       Clear the search or choose All.
                     </EmptyNote>
                   ) : (
+                    viewMode === 'table' ? (
+                    <ProductTable products={products} onOpen={setOpenProduct} />
+                    ) : (
                     <ul className={cn('grid gap-3', products.length > 1 && 'md:grid-cols-2')}>
                       {products.map((p) => {
                         const hasUrl = !!p.url && /^https?:\/\//.test(p.url);
@@ -189,17 +305,6 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             onClick={() => setOpenProduct(p)}
                             title="Open this product — source disclosure and research"
                           >
-                            {/* The card art, in miniature — generated, never a CAPTCHA. */}
-                            <span className="block h-[110px] overflow-hidden border-b border-border">
-                              <AiCover
-                                cacheKey={`product:${name}:${p.name}`}
-                                title={`${name} — ${p.name}`}
-                                context={`Product card art. ${p.description} Depict the essence of using this product — the experience, the interface mood, the domain — as premium collectible-card artwork.`}
-                                url={p.url ?? ''}
-                                source="news"
-                                compact
-                              />
-                            </span>
                             <div className="flex flex-1 flex-col p-4">
                               <div className="flex items-start justify-between gap-2">
                                 {/* The card opens on a click anywhere; the name is the real button for keyboards and screen readers. */}
@@ -233,7 +338,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                   {/* Said once in the section header; a repeat on every card was noise. */}
                                   {p.revenueNote ? <span className="line-clamp-2">{p.revenueNote}</span> : null}
                                 </span>
-                                {hasUrl && (
+                                {hasUrl ? (
                                   <a
                                     href={p.url!}
                                     target="_blank"
@@ -244,6 +349,8 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                                     <ExternalLink className="h-3 w-3" />
                                     {hostOf(p.url!) ?? 'Source'}
                                   </a>
+                                ) : (
+                                  <span className="shrink-0 text-[11px] text-faint">Source not recorded</span>
                                 )}
                               </div>
                             </div>
@@ -251,6 +358,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                         );
                       })}
                     </ul>
+                    )
                   )}
                 </>
               )}
@@ -294,13 +402,26 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                               >
                                 <div className="flex items-baseline justify-between gap-2">
                                   <span className="text-sm font-medium text-content">{r.title}</span>
-                                  {r.date && (
+                                  {r.date ? (
                                     <span className="shrink-0 text-[10px] font-semibold tabular-nums text-primary-ink">
                                       {r.date}
                                     </span>
+                                  ) : (
+                                    <span className="shrink-0 text-[10px] text-faint">No date reported</span>
                                   )}
                                 </div>
                                 <div className="line-clamp-2 text-xs text-muted">{r.detail}</div>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-faint">
+                                  {statedOn && <span>stated {statedOn}</span>}
+                                  {isPastDue(r.date, new Date()) && (
+                                    <span
+                                      className="rounded border border-amber-300 bg-amber-50 px-1 text-amber-700"
+                                      title="The stated target date has passed; this research does not confirm whether it shipped."
+                                    >
+                                      past due
+                                    </span>
+                                  )}
+                                </div>
                               </button>
                             </li>
                           ))}
