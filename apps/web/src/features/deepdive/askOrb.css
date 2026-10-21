@@ -17,6 +17,10 @@
   pointer-events: none;
   animation: ask-orb-ring var(--ask-orb-breath) ease-in-out infinite;
 }
+.ask-orb[data-scrolling='true']:not(:hover):not(:focus-visible) {
+  opacity: 0.35;
+  transform: scale(0.82);
+}
 .ask-orb__mark {
   animation: ask-orb-mark var(--ask-orb-breath) ease-in-out infinite;
 }

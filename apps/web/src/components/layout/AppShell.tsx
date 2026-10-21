@@ -170,7 +170,7 @@ export function AppShell() {
 
         <BetaNotice />
         <HostedBudgetBanner />
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-24 pt-4 md:pb-24 md:pl-6 md:pr-16 md:pt-6">
           {/* Keyed per page: leaving a page unmounts it (and its overlays) at
               once, and a crashed page does not stay crashed after navigating. */}
           <ErrorBoundary key={pageKey(location.pathname)}>
