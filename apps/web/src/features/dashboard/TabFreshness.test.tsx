@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import { BackgroundResearchControl } from '@/lib/living/BackgroundResearchControl';
 import type { DashboardTab } from '@mi/contracts';
+import { buildDataset } from '@mi/mocks';
 import { useDashboardTab } from '@/hooks/data';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
 import { TabFreshness } from './TabFreshness';
@@ -63,6 +64,37 @@ describe('tab freshness', () => {
   it('names research over a month old', async () => {
     show('team_org', '2026-08-01T00:00:00.000Z');
     expect(await screen.findByText(/over a month old/)).toBeInTheDocument();
+  });
+
+  it('says how many stored figures are older than usual, next to the Refresh action', async () => {
+    const TYPES = ['employees', 'revenue', 'users', 'valuation'] as const;
+    let n = 0;
+    const make = (status: 'stale' | 'undated' | 'current', confidence: 'verified' | 'user_verified' = 'verified') => ({
+      ...buildDataset().metrics[0]!, id: `m_${n}`, metricType: TYPES[n++]!, value: 10, confidence, source: 'https://sec.gov/x',
+      citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' as const }],
+      assessment: { version: 1 as const, assessedAt: '2026-10-20T12:00:00.000Z',
+        currency: { asOf: status === 'undated' ? null : status === 'stale' ? `2025-0${n}-10` : '2026-09-10', asOfSource: status === 'undated' ? 'none' as const : 'figure' as const,
+          notAfter: null, notAfterSource: null, ageDays: status === 'undated' ? null : 600, state: status, freshDays: 365, staleDays: 548 },
+        relevance: { definition: null, period: 'point_in_time' as const, issues: [] },
+        authority: { tier: 1, publisher: 'SEC filing', level: 'strong' as const },
+        accuracy: { support: 'original_passage' as const, independentSources: 1, corroboration: 'single' as const, plausibility: 'ok' as const, newerObservation: null },
+        purpose: { kind: 'regulatory_filing' as const, reportedBy: 'regulator' as const },
+        score: 60, verdict: 'fair' as const, effect: 'none' as const, summary: 'x' },
+    });
+    const facts = [make('stale'), make('undated'), make('current'), make('stale', 'user_verified')];
+    const repository = Object.assign(makeRepo(), {
+      getCompanyFacts: vi.fn(async () => facts),
+      getDashboardTab: vi.fn(async () => ({ companyId: 'cmp_1', tab: 'overview', content: { markdown: '' }, citations: [], lastRefreshedAt: '2026-10-12T09:00:00.000Z' })),
+    });
+    renderWithProviders(<Filled tab="overview" onRefresh={vi.fn()} />, { repository });
+    expect(await screen.findByText(/Figures: 1 current, 1 out of date, 1 undated · oldest: Employees, Jan 2025/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Refresh/ })).toBeInTheDocument();
+  });
+
+  it('says nothing about figures when none are old', async () => {
+    show('overview', '2026-10-12T09:00:00.000Z');
+    await screen.findByText('Researched 3h ago');
+    expect(screen.queryByText(/out of date/)).not.toBeInTheDocument();
   });
 
   it('cannot refresh without a key, or while it is already refreshing', async () => {

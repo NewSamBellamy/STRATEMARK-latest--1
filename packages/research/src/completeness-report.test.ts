@@ -141,11 +141,14 @@ describe('displayedCompanyFacts', () => {
     const snapshot = { ...fixture, viceClaims: [], reports: [], briefings: [], savedCards: [], opportunity: {}, researchJobs: [],
       threads: [] } as unknown as RepoSnapshot;
     const client: LlmClient = { ground: () => Promise.reject(new Error('offline')), structure: () => Promise.reject(new Error('offline')) };
-    const repo = new GeminiRepository({ apiKey: 'test', client, store: { read: () => structuredClone(snapshot), write: () => undefined } });
+    const now = new Date('2026-10-20T12:00:00Z');
+    const repo = new GeminiRepository({ apiKey: 'test', client, store: { read: () => structuredClone(snapshot), write: () => undefined }, now: () => now });
     for (const company of fixture.companies!) {
       const served = await repo.getCompanyFacts(company.id);
+      const others = fixture.companies!.filter((c) => c.id !== company.id);
       const pure = displayedCompanyFacts({ company, metrics: fixture.metrics!, attempts: fixture.originalSourceAttempts!,
-        evidence: fixture.researchEvidence!, otherCompanies: fixture.companies!.filter((c) => c.id !== company.id).map((c) => c.name) });
+        evidence: fixture.researchEvidence!, otherCompanies: others.map((c) => c.name),
+        rivalWebsites: others.flatMap((c) => c.websiteUrl ?? []), now });
       expect(pure).toEqual(served);
     }
   });

@@ -1,4 +1,5 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { projectCompanyCardFacts } from '@mi/research';
 import { SentinelRepository } from './SentinelRepository';
 import * as api from '@/lib/sentinelApi';
 
@@ -54,6 +55,42 @@ it('does not treat legacy cloud verification labels or another company’s docum
   await repo.getDeckByMarket('market');
   expect((await repo.listCards('deck'))[0]!.metrics[0]!.value).toBeNull();
   expect((await repo.getCompanyMetrics('cmp'))[0]!.value).toBe(45);
+});
+
+describe('facts are assessed on read with the injected clock (parity with the shared composition)', () => {
+  const NOW = new Date('2026-10-20T12:00:00Z');
+  const cardWith = (metrics: unknown[], cardType = 'company') => ({ ...payload.cards[0]!, card: { ...payload.cards[0]!.card, cardType }, metrics });
+  const forged = { version: 1, summary: 'Forged: perfect.', verdict: 'strong', effect: 'none', score: 100 };
+  it('serves the same facts as projectCompanyCardFacts for the same input, with the assessment computed now', async () => {
+    vi.spyOn(api, 'getCloudDeck').mockResolvedValue({ ...payload, cards: [cardWith([metric])] });
+    const repo = new SentinelRepository(() => NOW);
+    await repo.getDeckByMarket('market');
+    const served = (await repo.listCards('deck'))[0]!;
+    expect(served.metrics).toEqual(projectCompanyCardFacts(cardWith([metric]) as never, payload.companySourceAttempts, { now: NOW }).metrics);
+    expect(served.metrics[0]!.assessment!.assessedAt).toBe(NOW.toISOString());
+  });
+  it('discards an assessment carried by the cached card and recomputes it', async () => {
+    vi.spyOn(api, 'getCloudDeck').mockResolvedValue({ ...payload, cards: [cardWith([{ ...metric, assessment: forged }])] });
+    const repo = new SentinelRepository(() => NOW);
+    await repo.getDeckByMarket('market');
+    const shown = (await repo.listCards('deck'))[0]!.metrics[0]!;
+    expect(shown.assessment!.summary).not.toContain('Forged');
+    expect(shown.assessment!.currency.state).toBe('current');
+  });
+  it('shows an old figure as a dated aged-out estimate instead of dropping it', async () => {
+    vi.spyOn(api, 'getCloudDeck').mockResolvedValue({ ...payload, cards: [cardWith([metric])] });
+    const repo = new SentinelRepository(() => new Date('2028-01-01T00:00:00Z'));
+    await repo.getDeckByMarket('market');
+    const shown = (await repo.listCards('deck'))[0]!.metrics[0]!;
+    expect(shown).toMatchObject({ value: 45, confidence: 'estimated' });
+    expect(shown.assessment!.effect).toBe('shown_aged_out');
+  });
+  it('gives a signal card no facts', async () => {
+    vi.spyOn(api, 'getCloudDeck').mockResolvedValue({ ...payload, cards: [cardWith([metric], 'culture')] });
+    const repo = new SentinelRepository(() => NOW);
+    await repo.getDeckByMarket('market');
+    expect((await repo.listCards('deck'))[0]!.metrics).toEqual([]);
+  });
 });
 
 it('uses already-retained cloud verification originals without fetching or trusting diagnostic labels', async () => {

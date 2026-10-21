@@ -17,6 +17,7 @@
 import {
   TIER_LABELS,
   isSignalCardType,
+  figureAsOf,
   publisherOf,
   UNRECORDED_PUBLISHER,
   usableCitations,
@@ -77,7 +78,7 @@ export function localDate(d: Date = new Date()): string {
 }
 
 export function metricAsOf(m: CompanyMetric): string | null {
-  return m.passageSupport?.asOf || m.reportedSupport?.asOf || null;
+  return figureAsOf(m).asOf;
 }
 
 /**

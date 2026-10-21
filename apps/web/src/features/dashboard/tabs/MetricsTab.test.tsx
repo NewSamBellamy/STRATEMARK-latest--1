@@ -41,6 +41,21 @@ describe('dashboard metric evidence projection', () => {
     expect(within(table).getByText('Employees')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Company headline metrics' })).not.toBeInTheDocument();
   });
+  it('shows the stored source check under the figure, with why a stale one is old', async () => {
+    show({ source: 'https://sec.gov/Archives/report', citations: [{ title: 'Filing', url: 'https://sec.gov/Archives/report', credibility: 'primary' }],
+      assessment: {
+        version: 1, assessedAt: '2026-10-20T12:00:00.000Z',
+        currency: { asOf: '2025-04-10', asOfSource: 'figure', notAfter: null, notAfterSource: null, ageDays: 558, state: 'stale', freshDays: 365, staleDays: 548 },
+        relevance: { definition: 'employees', period: 'point_in_time', issues: [] }, authority: { tier: 1, publisher: 'SEC filing', level: 'strong' },
+        accuracy: { support: 'original_passage', independentSources: 1, corroboration: 'single', plausibility: 'ok', newerObservation: null },
+        purpose: { kind: 'regulatory_filing', reportedBy: 'regulator' }, score: 65, verdict: 'fair', effect: 'none', summary: 'x',
+      } });
+    const table = await screen.findByRole('table');
+    const checks = within(table).getAllByLabelText('Source check for Employees');
+    expect(checks[0]).toHaveTextContent('Source check: As of Apr 2025 (out of date for employees: 18 months)');
+    expect(checks[0]).toHaveTextContent('One source, no independent confirmation');
+    expect(within(table).getByText('123')).toBeInTheDocument();
+  });
   it('does not label unsupported legacy figures as verified when cards reject them', async () => {
     const metric = show({ source: 'https://reuters.com.attacker.test/figure',
       citations: [{ title: 'Reuters', url: 'https://reuters.com.attacker.test/figure', credibility: 'primary' }] });

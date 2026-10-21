@@ -154,9 +154,12 @@ export function createApp(
     forceMemoryStore?: boolean;
     cloudDeckService?: CloudDeckService;
     tasksAdapter?: TasksAdapter;
+    /** The clock for figure ages on every facts read (injected in tests; defaults to the present). */
+    clock?: () => Date;
   },
 ): Hono {
   const app = new Hono();
+  const clock = options?.clock ?? (() => new Date());
   const readOriginalSource = coalesceOriginalSources((url, scope) => retrieveOriginalSource(url, undefined, scope));
   const store = createDataStore(env, {
     store: options?.store,
@@ -325,7 +328,7 @@ export function createApp(
     const deckId = c.req.query('deckId') || '';
     const d = deckId ? await cloudDeckService.getDeck(userId, deckId) : null;
     const attempts = [...(d?.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(d?.originalSourceAttempts)];
-    return c.json({ cards: (d?.cards ?? []).map(card => projectCompanyCardFacts(card, attempts)) });
+    return c.json({ cards: (d?.cards ?? []).map(card => projectCompanyCardFacts(card, attempts, { now: clock() })) });
   });
   app.get('/api/cards/saved', async (c) => {
     const userId = await getUserId(c);
@@ -343,7 +346,7 @@ export function createApp(
       const deck = eligible.find(candidate => candidate?.cards.some(card => card.card.id === row.cardId));
       const card = deck?.cards.find(card => card.card.id === row.cardId);
       const attempts = [...(deck?.companySourceAttempts ?? []), ...retainedDiagnosticAttempts(deck?.originalSourceAttempts)];
-      return card && deck ? [{ ...projectCompanyCardFacts(card, attempts),
+      return card && deck ? [{ ...projectCompanyCardFacts(card, attempts, { now: clock() }),
         companySourceAttempts: attempts.filter(attempt => attempt.companyId === card.company?.id)
           .sort((a, b) => a.capturedAt.localeCompare(b.capturedAt)).slice(-20) }] : [];
     });
@@ -749,6 +752,7 @@ export function createApp(
         company: card.company as Company,
         marketName: deckRec.market.name as string,
         storedMetrics: card.metrics || [],
+        now: clock(),
         client: resolved.client,
         refreshOriginals: Boolean(force),
         ...(originalSources ? { originalSources, originalAttempts } : {}),

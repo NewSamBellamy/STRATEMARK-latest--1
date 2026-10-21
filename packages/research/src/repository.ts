@@ -124,10 +124,11 @@ import {
   distillThreadMemory,
   buildPromptContext,
 } from './semantic-memory';
-import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest, FIGURE_DATE_RULE } from './prompts';
+import { CHAT_SYSTEM, GROUNDED_SYSTEM, STRUCTURE_SYSTEM, METRIC_MEASUREMENT_INSTRUCTIONS, CURRENCY_UNIT_LIST, cardFactsHuntRequest, reachHuntRequest, FIGURE_DATE_RULE, LATEST_PERIOD_RULE, heldFigureLines, type HeldFigureLine } from './prompts';
 import type { ResearchPassage } from '@mi/contracts';
 import { cardIdsForThread, cardMemory, isReadableThread, reportStamp, requestThreadIds } from './card-memory';
 import type { Ownership } from '@mi/contracts';
+import { figureAsOf } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { CallMetricsAggregate, LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
@@ -135,6 +136,9 @@ import { applyMilestone, usageSince, type DeckRun, type DeckRunMilestone } from 
 import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
+import { HUNT_STALE_FIGURES, companyDomainOf, figurePublisher } from './metric-assessment';
+import { resolveWrite } from './compare-observations';
+import { assessFigure, type AssessContext } from './source-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
 import { secAdvFirmCandidates, secAdvObservationFor, secAdvReportUrl, secAdvSearchUrl } from './sec-adv';
@@ -171,6 +175,8 @@ import { readCompanyLink } from './link-reader';
  * hung summary tail held a job 'running' for 13+ minutes with zero provider
  * activity while the deck was already rendered). */
 const JOB_STALL_MS = 8 * 60_000;
+/** A dashboard refresh re-hunts stale figures for at most this many companies. */
+const REFRESH_STALE_MAX_COMPANIES = 8;
 /** How long a company's shared Overview + Products search is reused (a warm-up finishes well inside it). */
 const COMPANY_BRIEFING_TTL_MS = 15 * 60_000;
 /** A twin's cached tab is reused in another deck while younger than this (Live Intel: one day). */
@@ -246,7 +252,7 @@ import { dropQuestionOnlyFigures, routeChat } from './chat-route';
 import { answerFromMemory, answerGreeting, compareArchive, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
-import { projectedCompanyFacts } from './displayed-facts';
+import { displayedCompanyFacts, projectedCompanyFacts, type DisplayedFactsInput } from './displayed-facts';
 import { companySourceTargets } from './source-policy';
 import { companyBriefingPrompt, renderCompanyProducts, productSupportReferences, type ProductEvidenceSelections } from './company-products';
 import { canonicalTabMarkers, companyTabsBatchPrompt, companyTabsParts, companyTabsSections, headingCompanyKey, TAB_BATCH_SIZE } from './company-tabs-batch';
@@ -531,6 +537,10 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   catalogMax?: number;
   catalogPasses?: number;
   originalSources?: OriginalSourceServices;
+  /** Tests only: overrides HUNT_STALE_FIGURES (owner decision D6, default off). */
+  huntStaleFigures?: boolean;
+  /** The clock for figure ages and the verified window. Tests inject a fixed one; production reads the system clock. */
+  now?: () => Date;
   /** Reader capability only; this repository owns acknowledged local retention. */
   originalSourceReader?: (url: string, scope?: OriginalSourceScope) => Promise<OriginalSourceReceipt>;
   /** Optional preflight so unsupported leads do not consume the reader's bounded page budget. */
@@ -600,7 +610,8 @@ const SIGNAL_BRIEF_DEADLINE_MS = 120_000;
  * hunt covers a face-slot sweep) and at least as escalated (a higher escalation
  * asks for a different approach, so it must run on its own). */
 function huntCovers(running: HuntMetricsOptions | undefined, wanted: HuntMetricsOptions | undefined): boolean {
-  return (!running?.faceSlotsOnly || Boolean(wanted?.faceSlotsOnly)) && (running?.escalation ?? 0) >= (wanted?.escalation ?? 0);
+  return (!running?.faceSlotsOnly || Boolean(wanted?.faceSlotsOnly)) && (running?.escalation ?? 0) >= (wanted?.escalation ?? 0) &&
+    (Boolean(running?.refreshStale) || !wanted?.refreshStale);
 }
 
 /** One grounded search asking several companies' missing face figures. Each
@@ -688,6 +699,8 @@ export class GeminiRepository implements MarketIntelRepository {
   private readonly catalogMax?: number;
   private readonly catalogPasses?: number;
   private readonly originalSources?: OriginalSourceServices;
+  private readonly huntStaleFigures: boolean;
+  private readonly clock: () => Date;
   /** True when saved pages live in the workspace snapshot (browser); false when a separate page store holds them (desktop). */
   private readonly originalsInSnapshot: boolean = false;
   private readonly assetSourceReader?: (url: string) => Promise<OriginalSourceReceipt>;
@@ -787,6 +800,8 @@ export class GeminiRepository implements MarketIntelRepository {
     this.coverage = options.coverage;
     this.catalogMax = options.catalogMax;
     this.catalogPasses = options.catalogPasses;
+    this.huntStaleFigures = options.huntStaleFigures ?? HUNT_STALE_FIGURES;
+    this.clock = options.now ?? (() => new Date());
     this.originalSources = options.originalSources ? observeOriginalSources(options.originalSources, this.sourceLog) : undefined;
     const assetSourceReader = options.assetSourceReader ? observeRead(options.assetSourceReader, this.sourceLog) : undefined;
     this.assetSourceReader = assetSourceReader;
@@ -2463,6 +2478,24 @@ export class GeminiRepository implements MarketIntelRepository {
       // A failed hunt never blocks the refresh — the update sweep stands.
     }
 
+    // 3. Figures whose evidence went stale or undated get one more look. Bounded
+    //    so a refresh cannot loop or overspend: at most REFRESH_STALE_MAX_COMPANIES
+    //    companies, one at a time, one hunt each (a hunt is one grounded pass),
+    //    once per refresh. A newer figure replaces the old only by the
+    //    latest-wins rule; otherwise the old one stays, labelled.
+    //    OFF by default (HUNT_STALE_FIGURES, owner decision D6): it adds model calls.
+    let looked = 0;
+    for (const companyId of this.huntStaleFigures ? deckCompanyIds : []) {
+      if (looked >= REFRESH_STALE_MAX_COMPANIES) break;
+      try {
+        if (this.staleTypesOf(companyId).size === 0) continue;
+        looked += 1;
+        await this.huntCompanyMetrics(companyId, { refreshStale: true });
+      } catch {
+        // A failed look never blocks the refresh; the figure stays, labelled stale.
+      }
+    }
+
     const nowIso = new Date().toISOString();
     const deckIdx = this.snap.decks.findIndex((d) => d.id === deck.id);
     if (deckIdx >= 0) {
@@ -2808,15 +2841,109 @@ export class GeminiRepository implements MarketIntelRepository {
     return Promise.resolve(structuredClone(this.snap.metrics.filter((m) => m.companyId === companyId)));
   }
   async getCompanyFacts(companyId: string): Promise<CompanyMetric[]> {
+    // Assessed afresh at read time with the injected clock, never from storage (assess-facts.ts);
+    // an old verified or quoted figure shows as a dated estimate rather than vanishing.
+    const input = await this.factsInput(companyId);
+    return input ? displayedCompanyFacts(input) : [];
+  }
+
+  /** Websites of the other companies in this company's market: a source on one of them is a competitor's. */
+  private rivalWebsites(companyId: string): string[] {
+    const marketId = this.snap.companyMarket[companyId];
+    if (marketId === undefined) return [];
+    return this.snap.companies
+      .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId && row.websiteUrl)
+      .map((row) => row.websiteUrl as string);
+  }
+
+  /** What the write-time comparison (latest wins) and the hunt prompts assess against. */
+  private assessContext(companyId: string): AssessContext {
+    const company = this.snap.companies.find((c) => c.id === companyId);
+    return { now: this.clock(), companyWebsite: company?.websiteUrl ?? null, ownership: company?.ownership ?? null, rivalHosts: this.rivalWebsites(companyId).flatMap((site) => companyDomainOf(site) ?? []) };
+  }
+
+  /**
+   * The facts before any currency effect: what hunt-target and readiness decisions read.
+   * A verified figure that has gone stale shows as estimated (demoted_stale) but is still
+   * verified here, and a figure shown only as an aged-out estimate is still absent here, so
+   * which figures get hunted (and how many model calls that costs) is unchanged by the
+   * assessment (PLAN-CRAAP 1.2).
+   */
+  private async acceptedFacts(companyId: string): Promise<CompanyMetric[]> {
     // A reported figure links to the page that states it, or is not shown.
     return applySourceChecks(companyId, await this.projectedFacts(companyId), this.snap.sourceChecks);
   }
 
+  /**
+   * Latest wins (PLAN-CRAAP 1.3): a figure written over an existing one only stays when
+   * the evidence and date say it should (false = the old row was put back as it was; a
+   * newer-but-weaker figure is recorded beside it, never silently dropped). Nothing is
+   * assessed or stored here: the assessment is computed on read.
+   */
+  private settleAccepted(metric: CompanyMetric, prior: CompanyMetric | null = null): boolean {
+    return resolveWrite(metric, prior, this.assessContext(metric.companyId));
+  }
+
+  /**
+   * Latest wins at a lane that used to fill only EMPTY slots (quoted, reported, recovery, reach,
+   * market batch): lay the incoming observation over the row, then let `settleAccepted` decide
+   * whether it stays. The old figure is never dropped (a replaced one goes to `priorFigures`, a
+   * newer-but-weaker one is recorded as `newerObservation`, a conflict is recorded, all capped);
+   * a human row is never touched. The row's evidence fields (its support objects and the
+   * verification stamps) are cleared first so the new figure carries only its own evidence; a
+   * put-back restores them exactly. 'confirmed' = the same figure for the same date was re-stated; the row is left exactly as it was.
+   * Callers have already checked the revision guard and skipped ambiguous rows.
+   */
+  private overwriteFigure(current: CompanyMetric, patch: Partial<CompanyMetric>): 'written' | 'confirmed' | 'kept' {
+    if (current.confidence === 'user_verified') return 'kept';
+    const prior = current.value != null && current.confidence !== 'unknown' ? structuredClone(current) : null;
+    const row = current as unknown as Record<string, unknown>;
+    for (const key of ['passageSupport', 'reportedSupport', 'quotedSupport', 'reportedBand', 'lastVerifiedAt', 'lastVerificationAttemptAt']) delete row[key];
+    Object.assign(current, patch);
+    if (!prior) return 'written';
+    if (!this.settleAccepted(current, prior)) return 'kept';
+    if (prior.value !== current.value || prior.confidence !== current.confidence || figureAsOf(prior).asOf !== figureAsOf(current).asOf) return 'written';
+    // The same figure for the same date, re-stated: nothing changed, so the row is left exactly as it was
+    // (a rewrite here would diverge from what was persisted, and a rerun would churn the row forever).
+    for (const key of Object.keys(current)) if (!(key in prior)) delete row[key];
+    Object.assign(current, prior);
+    return 'confirmed';
+  }
+
+  /** The figures already held for these types, as the hunt prompt's "we already hold X as of D (source)" input. Stored rows only. */
+  private heldFigures(companyId: string, types: readonly MetricType[]): HeldFigureLine[] {
+    const rows = this.snap.metrics.filter((m) => m.companyId === companyId);
+    return types.flatMap((t) => {
+      const revision = currentMetricRevision(rows, companyId, t);
+      const m = revision && !revision.ambiguous ? revision.metric : null;
+      if (!m || m.value == null || m.confidence === 'unknown') return [];
+      return [{ label: METRIC_TYPE_LABELS[t], value: m.value, asOf: figureAsOf(m).asOf, publisher: figurePublisher(m) }];
+    });
+  }
+
+  /** The metric types whose stored figure (current revision, assessed now) has stale or undated evidence. */
+  private staleTypesOf(companyId: string): Set<MetricType> {
+    const ctx = this.assessContext(companyId);
+    const rows = this.snap.metrics.filter((m) => m.companyId === companyId);
+    return new Set(METRIC_TYPES.filter((t) => {
+      const revision = currentMetricRevision(rows, companyId, t);
+      if (!revision || revision.ambiguous) return false;
+      const state = assessFigure(revision.metric, ctx)?.currency.state;
+      return state === 'stale' || state === 'undated';
+    }));
+  }
+
   /** The facts as the evidence supports them, before source binding hides or relinks any. */
   private async projectedFacts(companyId: string): Promise<CompanyMetric[]> {
+    const input = await this.factsInput(companyId);
+    return input ? projectedCompanyFacts(input) : [];
+  }
+
+  /** What the shared read-time composition (displayed-facts.ts) needs for one company; null when it is unknown. */
+  private async factsInput(companyId: string): Promise<DisplayedFactsInput | null> {
     await this.ready();
     const company = this.snap.companies.find(row => row.id === companyId);
-    if (!company) return [];
+    if (!company) return null;
     const attempts = await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) });
     // The repair pass re-projects the retained profile evidence with the same
     // roster guard hydration used: market-scoped rivals, never the whole snap.
@@ -2824,8 +2951,8 @@ export class GeminiRepository implements MarketIntelRepository {
     const otherCompanies = marketId === undefined ? undefined : this.snap.companies
       .filter((row) => row.id !== companyId && this.snap.companyMarket[row.id] === marketId)
       .map((row) => row.name);
-    // One composition shared with the completeness report (displayed-facts.ts).
-    return projectedCompanyFacts({ company, metrics: this.snap.metrics, attempts, evidence: this.snap.researchEvidence ?? [], otherCompanies });
+    return { company, metrics: this.snap.metrics, attempts, evidence: this.snap.researchEvidence ?? [], otherCompanies,
+      sourceChecks: this.snap.sourceChecks, rivalWebsites: this.rivalWebsites(companyId), now: this.clock() };
   }
 
   /**
@@ -3558,6 +3685,7 @@ export class GeminiRepository implements MarketIntelRepository {
       const result = await researchDashboardWithSources(tab, { company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: await this.getCompanyFacts(companyId), client: this.client,
+        now: this.clock(), rivalWebsites: this.rivalWebsites(companyId),
         originalAttempts: await this.getOriginalSourceEvidence({ companyId, limit: 20, support: originalSupportReferences(this.snap.metrics, companyId) }) });
       return { companyId, tab, ...result, lastRefreshedAt: null };
     }
@@ -3677,6 +3805,7 @@ export class GeminiRepository implements MarketIntelRepository {
         company,
         marketName: this.snap.companyMarket[companyId] ?? 'this market',
         storedMetrics: await this.getCompanyFacts(companyId),
+        now: this.clock(), rivalWebsites: this.rivalWebsites(companyId),
         client: boundedClient,
         signal: controller.signal,
         refreshOriginals: Boolean(force),
@@ -4020,14 +4149,18 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     const listed = targets.map((t) => {
-      const asOf = t.metric.passageSupport?.asOf ? `, reported as of ${t.metric.passageSupport.asOf}` : '';
+      // The stored figure's own date and publisher, so the model checks for something newer rather than anchoring on a bare value.
+      const stated = figureAsOf(t.metric).asOf;
+      const asOf = stated ? `, as of ${stated}` : ', no stated date';
+      const publisher = figurePublisher(t.metric);
       const captured = t.metric.capturedAt?.slice(0, 10) ?? 'unknown date';
-      return `- ${METRIC_TYPE_LABELS[t.metricType]}: currently stored as ${t.metric.value} (estimated; captured ${captured}${asOf})`;
+      return `- ${METRIC_TYPE_LABELS[t.metricType]}: currently stored as ${t.metric.value} (estimated; captured ${captured}${asOf}${publisher ? `, from ${publisher}` : ''})`;
     }).join('\n');
     const g = await this.client.ground(
       [
         `For each figure below, re-check whether it is still the best-supported current value for ${company.name}:`,
         listed,
+        LATEST_PERIOD_RULE,
         `Company: ${company.name} — ${company.oneLiner}`,
         `Use Google Search. For each figure state whether the stored value HOLDS, is CONTRADICTED by better current evidence (name the better figure), or cannot be re-confirmed. Prefer primary sources and recent reputable coverage; name the value, its as-of date, and the source. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company, never a division's figure presented as the company's.`,
@@ -4235,6 +4368,7 @@ export class GeminiRepository implements MarketIntelRepository {
               };
               this.snap.metrics.push(metric);
             }
+            const priorFigure = metric.value != null ? structuredClone(metric) : null;
             metric.value = normalizeMetricToUsd(type, observed.value, observed.passageSupport.unit);
             metric.confidence = 'verified';
             metric.passageSupport = observed.passageSupport;
@@ -4242,7 +4376,8 @@ export class GeminiRepository implements MarketIntelRepository {
             metric.source = observed.citations[0]?.url ?? metric.source;
             metric.methodNote = observed.methodNote;
             metric.capturedAt = nowIso;
-            Object.assign(metric, markVerified(metric, nowIso));
+            if (!this.settleAccepted(metric, priorFigure)) continue;
+            if (metric.confidence === 'verified') Object.assign(metric, markVerified(metric, nowIso));
             filled.push(type);
           }
         }
@@ -4316,6 +4451,7 @@ export class GeminiRepository implements MarketIntelRepository {
                 capturedAt: nowIso,
               };
               if (!metric) this.snap.metrics.push(row);
+              const priorFigure = row.value != null ? structuredClone(row) : null;
               row.value = observed.value;
               row.confidence = 'verified';
               row.passageSupport = observed.passageSupport;
@@ -4324,8 +4460,10 @@ export class GeminiRepository implements MarketIntelRepository {
               row.source = observed.citations[0]?.url ?? null;
               row.methodNote = `Annual revenue reported in SEC XBRL for ${observed.passageSupport.periodStart} to ${observed.passageSupport.asOf}; not ARR or an independent audit.`;
               row.capturedAt = nowIso;
-              Object.assign(row, markVerified(row, nowIso));
-              filled.push('arr');
+              if (this.settleAccepted(row, priorFigure)) {
+                if (row.confidence === 'verified') Object.assign(row, markVerified(row, nowIso));
+                filled.push('arr');
+              }
             }
           }
         }
@@ -4462,8 +4600,9 @@ export class GeminiRepository implements MarketIntelRepository {
    * Pages come from receipts the pipeline already retained for the official
    * host; only when those state nothing does it read the homepage and up to
    * two of its own about / customers pages. A figure the pages state plainly
-   * lands as ESTIMATED with the page as its citation; an open slot only, never
-   * over a value, a verified row or a human edit. Every attempt that read a page
+   * lands as ESTIMATED with the page as its citation. Pages are only read for an
+   * open slot (that is a cost rule); a figure that arrives over a held one is
+   * settled by latest wins, and a human edit is never touched. Every attempt that read a page
    * is retained under the slot's own topic, so a company whose site states
    * nothing reads as "tried, nothing found", not "never targeted".
    */
@@ -4546,15 +4685,19 @@ export class GeminiRepository implements MarketIntelRepository {
       .filter((c) => c.id !== companyId && this.snap.companyMarket[c.id] === marketId).map((c) => c.name);
   }
 
-  /** Write gated own-site rows into open slots only. Returns the types written. */
+  /** Write gated own-site rows. An open slot is filled; a slot that filled while the pages were
+   * read is settled by latest wins (never a human edit, an ambiguous tie is left alone).
+   * Returns the types written. */
   private applyReachRows(companyId: string, rows: readonly CompanyMetric[], nowIso: string): MetricType[] {
     const written: MetricType[] = [];
     for (const row of rows) {
-      if (row.value == null || !this.reachSlotOpen(companyId, row.metricType)) continue;
-      const current = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, row.metricType)?.metric;
+      if (row.value == null) continue;
+      const revision = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, row.metricType);
+      if (revision?.ambiguous) continue;
+      const current = revision?.metric;
       const fields = { value: row.value, confidence: 'estimated' as const, source: row.source, citations: row.citations,
         passageSupport: null, reportedSupport: row.reportedSupport, quotedSupport: null, methodNote: row.methodNote, capturedAt: nowIso };
-      if (current) Object.assign(current, fields);
+      if (current) { if (this.overwriteFigure(current, fields) !== 'written') continue; }
       else this.snap.metrics.push({ ...row, id: `met_site_${Date.now().toString(36)}_${row.metricType}`, ...fields });
       written.push(row.metricType);
     }
@@ -4844,23 +4987,25 @@ export class GeminiRepository implements MarketIntelRepository {
         this.snap.metrics.filter((m) => m.companyId === target.company.id && m.metricType === estimate.metricType),
         target.company.id, estimate.metricType);
       if (current?.ambiguous) continue;
-      let metric = current?.metric;
-      if (metric?.confidence === 'user_verified' || metric?.confidence === 'verified') continue;
-      if (!metric) {
-        metric = {
+      const metric = current?.metric;
+      if (metric?.confidence === 'user_verified') continue;
+      const citations = support.sources.slice(0, 2).map((s) => ({ title: s.title, url: s.url }));
+      const fields = {
+        value: estimate.value, confidence: 'estimated' as const, reportedSupport, citations,
+        source: citations[0]?.url ?? null,
+        methodNote: `${estimate.methodNote} Provider-reported estimate (${reportedAsOfNote(reportedSupport.asOf, reportedSupport.support.text)}), not verified against an original.`,
+        capturedAt: nowIso,
+      };
+      if (metric) {
+        // Latest wins: a held figure (an older estimate, a stale verified row) is replaced only by a
+        // newer, at-least-as-authoritative one; a current verified row always stands.
+        if (this.overwriteFigure(metric, fields) !== 'written') continue;
+      } else {
+        this.snap.metrics.push({
           id: `met_batch_${Date.now().toString(36)}_${estimate.metricType}`,
-          companyId: target.company.id, metricType: estimate.metricType, value: null, confidence: 'unknown',
-          source: null, citations: [], methodNote: null, capturedAt: nowIso,
-        };
-        this.snap.metrics.push(metric);
+          companyId: target.company.id, metricType: estimate.metricType, ...fields,
+        });
       }
-      metric.value = estimate.value;
-      metric.confidence = 'estimated';
-      metric.reportedSupport = reportedSupport;
-      metric.citations = support.sources.slice(0, 2).map((s) => ({ title: s.title, url: s.url }));
-      metric.source = metric.citations[0]?.url ?? null;
-      metric.methodNote = `${estimate.methodNote} Provider-reported estimate (${reportedAsOfNote(reportedSupport.asOf, reportedSupport.support.text)}), not verified against an original.`;
-      metric.capturedAt = nowIso;
       touched.add(target.company.id);
       filledTypes += 1;
     }
@@ -4906,7 +5051,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const mine = () => this.snap.metrics.filter((m) => m.companyId === companyId);
     const revisions = new Map(METRIC_TYPES.map(t => [t, JSON.stringify(mine().filter(m => m.metricType === t))]));
     const acceptedAtStart = this.originalSources
-      ? new Map((await this.getCompanyFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
+      ? new Map((await this.acceptedFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
 
     // A figure is a hunt target when we have nothing, an unknown, or a soft
     // estimate. Verified figures re-check via decay; user figures are law.
@@ -4915,12 +5060,15 @@ export class GeminiRepository implements MarketIntelRepository {
     // AUM, never to a search for an ARR figure that no partnership publishes.
     const profile = classifyMarketProfile(company);
     const profileTypes = profileHuntTypes(profile);
+    // The dashboard refresh also re-hunts figures whose evidence is stale or undated.
+    const staleTypes = options?.refreshStale && this.huntStaleFigures ? this.staleTypesOf(companyId) : new Set<MetricType>();
     const softTypes: MetricType[] = profileTypes.filter((t) => {
       const current = currentMetricRevision(mine(), companyId, t);
       if (current?.ambiguous) return false;
       const m = current?.metric;
       if (!m) return true;
       if (m.confidence === 'user_verified') return false;
+      if (staleTypes.has(t)) return true;
       if (m.confidence === 'verified') return acceptedAtStart !== null && acceptedAtStart.get(t)?.confidence !== 'verified';
       return m.value == null || m.confidence === 'unknown' || m.confidence === 'estimated';
     });
@@ -4946,7 +5094,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const faceFull = shownFamilies.size >= CARD_FACE_SIZE;
     for (let i = softTypes.length - 1; i >= 0; i--) {
       const type = softTypes[i]!;
-      if (!CARD_FACT_HUNT_TYPES.includes(type)) continue;
+      if (!CARD_FACT_HUNT_TYPES.includes(type) || staleTypes.has(type)) continue;
       const slots = PROFILE_CORE_SLOTS[profile].filter((slot) => slot.includes(type));
       const familyShown = shownFamilies.has(faceFamilyOf(type));
       if (familyShown || (faceFull && slots.length > 0 && slots.every((slot) => slot.some(slotFilled)))) softTypes.splice(i, 1);
@@ -5107,6 +5255,8 @@ export class GeminiRepository implements MarketIntelRepository {
         ...(escalation > 0 && profile === 'financial_firm' ? ['For this firm, regulatory assets under management appear in SEC Form ADV filings (adviserinfo.sec.gov), fund disclosures and the firm\'s own publications; a press AUM figure is usable only when it names its as-of date.'] : []),
         ...(priorTargets.length ? ['Previously retrieved URLs are leads only. Check for the latest reporting period and actual disclosure:', ...priorTargets.map(source => source.url)] : []),
         `Company: ${company.name} — ${company.oneLiner}`,
+        LATEST_PERIOD_RULE,
+        ...heldFigureLines(this.heldFigures(company.id, softTypes)),
         `Use Google Search. For each figure name the value, its as-of date, and the source. Prefer primary sources and recent reputable coverage. If no reliable current figure exists for a metric, say so plainly for that metric. Never guess.`,
         `MEASUREMENT BASIS: every figure must describe the WHOLE legal company — for a conglomerate, total company revenue/valuation/headcount, never a division's figure presented as the company's.`,
         `UNITS: Market Share in percent of its primary market (0-100); Users, Employees and Distribution (countries or doors) as plain counts; Valuation, Market Cap, ARR, Revenue, Funding and AUM (assets under management) in the currency the source reports (${CURRENCY_UNIT_LIST}).`,
@@ -5198,7 +5348,7 @@ export class GeminiRepository implements MarketIntelRepository {
     // A legacy label is not accepted evidence. Recheck the public projection
     // after retrieval so newly supported facts and human edits stay protected.
     const acceptedAtWrite = this.originalSources
-      ? new Map((await this.getCompanyFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
+      ? new Map((await this.acceptedFacts(companyId)).map(metric => [metric.metricType, metric])) : null;
 
     // Protected routes require support for EACH figure. A reputable link in
     // the pass is not evidence for every proposed value. No-reader legacy
@@ -5217,6 +5367,8 @@ export class GeminiRepository implements MarketIntelRepository {
         let metric = current?.metric;
         // Recheck after provider work: a human correction or another completed
         // verification may have hardened this row while the hunt was in flight.
+        // A verified row that has gone stale still counts as verified here (it only reads as
+        // estimated on display), so the hunt writes exactly where it always did.
         if (metric?.confidence === 'user_verified' || (metric?.confidence === 'verified' &&
           (acceptedAtWrite === null || acceptedAtWrite.get(fig.metricType)?.confidence === 'verified'))) continue;
         if (!metric) {
@@ -5233,6 +5385,7 @@ export class GeminiRepository implements MarketIntelRepository {
           };
           this.snap.metrics.push(metric);
         }
+        const priorFigure = metric.value != null ? structuredClone(metric) : null;
         metric.value = normalizeMetricToUsd(fig.metricType, fig.value, fig.passageSupport?.unit);
         metric.confidence = 'verified';
         metric.passageSupport = this.originalSources ? fig.passageSupport : null;
@@ -5242,15 +5395,16 @@ export class GeminiRepository implements MarketIntelRepository {
           ? `Original reported ${fig.metricType} as of ${fig.passageSupport!.asOf}. ${currencyConversionNote(fig.value, fig.passageSupport?.unit)}`.trim()
           : fig.methodNote ?? 'Filled by a targeted metrics hunt.';
         metric.capturedAt = nowIso;
-        Object.assign(metric, markVerified(metric, nowIso));
+        if (!this.settleAccepted(metric, priorFigure)) continue;
+        if (metric.confidence === 'verified') Object.assign(metric, markVerified(metric, nowIso));
         filledTypes.push(fig.metricType);
       }
     }
 
     // Figures quoted word for word from a page we fetched, but phrased as
     // ordinary press/news prose the mechanical verified gate rejects, land as
-    // ESTIMATED with the page as citation (see quoted-estimate.ts). Open slots
-    // only: never overwrites a value, a verified row or a human edit.
+    // ESTIMATED with the page as citation (see quoted-estimate.ts). A held figure
+    // is settled by latest wins (never a human edit; nothing is dropped).
     if (this.originalSources) {
       for (const fig of out.figures) {
         if (filledTypes.includes(fig.metricType) || !softTypes.includes(fig.metricType) || !fig.passageSupport) continue;
@@ -5262,14 +5416,16 @@ export class GeminiRepository implements MarketIntelRepository {
         const revision = currentMetricRevision(mine(), companyId, fig.metricType);
         if (revision?.ambiguous) continue;
         const current = revision?.metric;
-        if (current && (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified')) continue;
+        if (current?.confidence === 'user_verified') continue;
         const row = { value: normalizeMetricToUsd(fig.metricType, fig.value, fig.passageSupport.unit), confidence: 'estimated' as const,
           source: citations[0]!.url, citations, passageSupport: null, reportedSupport: null,
           quotedSupport: { sourceUrl: fig.passageSupport.sourceUrl, quote: fig.passageSupport.quote, asOf: fig.passageSupport.asOf,
             value: fig.value!, unit: fig.passageSupport.unit },
           methodNote: `${quotedEstimateNote(fig.passageSupport, citations[0]!)} ${currencyConversionNote(fig.value, fig.passageSupport.unit)}`.trim(),
           capturedAt: nowIso };
-        if (current) Object.assign(current, row);
+        // Latest wins: a held figure is replaced only by a newer, at-least-as-authoritative one (the
+        // old value is kept dated); an older or weaker quote leaves it and is recorded beside it.
+        if (current) { if (this.overwriteFigure(current, row) !== 'written') continue; }
         else this.snap.metrics.push({ id: `met_hunt_${Date.now().toString(36)}_${fig.metricType}_q`, companyId, metricType: fig.metricType, ...row });
         filledTypes.push(fig.metricType);
       }
@@ -5308,8 +5464,9 @@ export class GeminiRepository implements MarketIntelRepository {
 
   /** Hunt reported-estimate lane: runs the grounded hunt answer through the SAME
    * reported-claim gate recovery uses and writes passing rows as `estimated`
-   * for slots that currently hold no value. Never overwrites a value, never
-   * touches verified/user rows, never invents; returns the types written. */
+   * for open slots; a slot already holding a figure is settled by latest wins
+   * (newer and at least as authoritative replaces, the old value kept dated;
+   * a human row is never touched). Never invents; returns the types written. */
   private async fillReportedHuntRows(
     company: Company, slots: MetricType[], g: { text: string; grounding?: ProviderGrounding },
     revisions: Map<MetricType, string>, peers: readonly string[] = [],
@@ -5331,12 +5488,15 @@ export class GeminiRepository implements MarketIntelRepository {
       const revision = currentMetricRevision(mine(), company.id, row.metricType);
       if (revision?.ambiguous) continue;
       const current = revision?.metric;
-      if (current && (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified')) continue;
+      if (current?.confidence === 'user_verified') continue;
       // reportedCompanyMetrics already stores the USD form of a native-currency figure.
       const value = row.value;
       if (current) {
-        Object.assign(current, { value, confidence: 'estimated', source: row.source, citations: row.citations,
+        // Latest wins: a held figure (an older estimate, a stale verified row) is replaced only by a
+        // newer, at-least-as-authoritative one; otherwise it stays and the newer reading is recorded.
+        const outcome = this.overwriteFigure(current, { value, confidence: 'estimated', source: row.source, citations: row.citations,
           passageSupport: null, reportedSupport: row.reportedSupport, methodNote: row.methodNote, capturedAt: nowIso });
+        if (outcome !== 'written') continue;
       } else {
         this.snap.metrics.push({ ...row, id: `met_hunt_${Date.now().toString(36)}_${row.metricType}`, value, capturedAt: nowIso });
       }
@@ -5352,8 +5512,10 @@ export class GeminiRepository implements MarketIntelRepository {
     return written;
   }
 
-  /** Write a gated employee BAND row into an open employees slot. Never
-   * overwrites a point value, a verified row or a human edit. */
+  /** Write a gated employee BAND row into an open employees slot. A band carries no point
+   * value, and latest wins never lets an empty result replace a figure (compareObservations:
+   * 'an empty result never replaces a figure'), so a held value, a verified row or a human
+   * edit always stands: this guard IS that decision, not a skipped one. */
   private writeEmployeeBand(companyId: string, band: CompanyMetric, nowIso: string): boolean {
     const revision = currentMetricRevision(this.snap.metrics.filter((m) => m.companyId === companyId), companyId, 'employees');
     if (revision?.ambiguous) return false;
@@ -5456,18 +5618,24 @@ export class GeminiRepository implements MarketIntelRepository {
       }
       const verified = originalCitations.length > 0;
       if (current) {
-        if (current.value != null || current.confidence === 'user_verified' || current.confidence === 'verified') continue;
-        current.value = row.value;
-        current.confidence = verified ? 'verified' : 'estimated';
-        current.source = verified ? originalCitations[0]!.url : row.source;
-        current.citations = verified ? originalCitations : row.citations;
-        current.passageSupport = row.passageSupport;
-        current.reportedSupport = verified ? null : row.reportedSupport;
-        current.methodNote = verified
-          ? `Verified against a retained original page recovered from saved research. ${currencyConversionNote(row.reportedSupport?.value ?? row.value, (row.passageSupport ?? row.reportedSupport)?.unit)}`.trim()
-          : row.methodNote;
-        current.capturedAt = nowIso;
-        if (verified) Object.assign(current, markVerified(current, nowIso));
+        if (current.confidence === 'user_verified') continue;
+        // Latest wins: saved research replaces a held figure only when it is newer and at least as
+        // authoritative (the old value is kept dated); otherwise the held figure stays.
+        const outcome = this.overwriteFigure(current, {
+          value: row.value,
+          confidence: verified ? 'verified' : 'estimated',
+          source: verified ? originalCitations[0]!.url : row.source,
+          citations: verified ? originalCitations : row.citations,
+          passageSupport: row.passageSupport,
+          reportedSupport: verified ? null : row.reportedSupport,
+          methodNote: verified
+            ? `Verified against a retained original page recovered from saved research. ${currencyConversionNote(row.reportedSupport?.value ?? row.value, (row.passageSupport ?? row.reportedSupport)?.unit)}`.trim()
+            : row.methodNote,
+          capturedAt: nowIso,
+        });
+        // 'confirmed' = the figure already held, re-stated: left exactly as it was, nothing to report.
+        if (outcome !== 'written') continue;
+        if (current.confidence === 'verified') Object.assign(current, markVerified(current, nowIso));
       } else {
         const filled: CompanyMetric = { ...row, capturedAt: nowIso,
           value: row.value };
@@ -5478,8 +5646,8 @@ export class GeminiRepository implements MarketIntelRepository {
           filled.source = originalCitations[0]!.url;
           filled.reportedSupport = null;
           filled.methodNote = `Verified against a retained original page recovered from saved research. ${conversion}`.trim();
-          Object.assign(filled, markVerified(filled, nowIso));
         }
+        if (filled.confidence === 'verified') Object.assign(filled, markVerified(filled, nowIso));
         this.snap.metrics.push(filled);
       }
       filledTypes.push(row.metricType);
@@ -5577,7 +5745,7 @@ export class GeminiRepository implements MarketIntelRepository {
       // Readiness reads the accepted facts projection — the same source the
       // card face renders — never the raw observation ledger.
       const before = computeCompanyCompleteness({ companyId, name: company.name,
-        metrics: await this.getCompanyFacts(companyId), profile });
+        metrics: await this.acceptedFacts(companyId), profile });
       if (before.gaps.length > 0) {
         // A failed rung degrades to the next instead of consuming the batch;
         // on this transport every lane exists, so degradation happens on throw.
@@ -5587,7 +5755,7 @@ export class GeminiRepository implements MarketIntelRepository {
         try { await this.huntCompanyMetrics(companyId); acted = true; } catch { /* gaps stay honest */ }
         if (acted) researched.push(companyId);
         const after = computeCompanyCompleteness({ companyId, name: company.name,
-          metrics: await this.getCompanyFacts(companyId), profile });
+          metrics: await this.acceptedFacts(companyId), profile });
         reports.push(after);
         stillMissing += after.gaps.length;
       } else {

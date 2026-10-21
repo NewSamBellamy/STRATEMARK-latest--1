@@ -20,6 +20,7 @@ import {
   type PeerRanking,
 } from '../dashboardModel';
 import { KpiTileSkeleton, Section, metricLabel, useTabHref } from '../dashboardKit';
+import { FreshnessMark } from '../SourceCheck';
 import { usePeers } from '../usePeers';
 import { buildFigureSet, currencyCaptionFor, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
 import { useCachedDashboardTab } from '../useCachedTab';
@@ -160,6 +161,7 @@ function FigureTile({ metric, ranking, href }: { metric: CompanyMetric; ranking:
       </p>
       <p className="mt-0.5 text-[11px] text-faint">
         {figureTrust(metric)} · {dates.period ? `For ${dates.period}` : 'Period not reported'}
+        {metric.assessment && <>{' · '}<FreshnessMark metric={metric} /></>}
       </p>
       {dates.record && <p className="text-[11px] text-faint">{dates.record}</p>}
       {currency && <p className="mt-1 text-[11px] leading-snug text-muted">{currency}</p>}

@@ -103,6 +103,9 @@ export interface OriginalSourceReceipt {
   /** Issuer identity extracted directly from an SEC inline-XBRL filing. */
   issuerName?: string;
   truncated?: boolean;
+  /** The page's own publication/update date (YYYY-MM-DD). An UPPER BOUND on how old a
+   * figure on the page can be; never a figure's date and never written into an `asOf`. */
+  publishedAt?: string;
   reason?: string;
   format?: 'sec-companyconcept' | 'sec-filing' | 'sec-adv';
 }
@@ -128,6 +131,8 @@ export function isOriginalSourceAttempt(value: unknown): value is OriginalSource
         (receipt.finalUrl !== undefined && !bounded(receipt.finalUrl, 2048)) ||
         (receipt.reason !== undefined && !bounded(receipt.reason, 1000)) ||
         (receipt.truncated !== undefined && typeof receipt.truncated !== 'boolean') ||
+        (receipt.publishedAt !== undefined && !(typeof receipt.publishedAt === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(receipt.publishedAt) &&
+          Number.isFinite(Date.parse(receipt.publishedAt)) && receipt.publishedAt <= receipt.retrievedAt.slice(0, 10))) ||
         (receipt.httpStatus !== undefined && (!Number.isInteger(receipt.httpStatus) || receipt.httpStatus < 100 || receipt.httpStatus > 599))) return false;
       return receipt.status === 'retrieved'
         ? receipt.httpStatus === 200 && bounded(receipt.finalUrl, 2048) && /^[a-f0-9]{64}$/.test(receipt.contentHash ?? '') &&

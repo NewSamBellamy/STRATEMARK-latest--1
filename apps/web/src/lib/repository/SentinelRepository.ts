@@ -151,9 +151,13 @@ export class SentinelRepository implements MarketIntelRepository {
   private memoryCards = new Map<string, CardWithCompany[]>();
   private memoryOriginals = new Map<string, OriginalSourceAttempt[]>();
 
+  /** The clock for figure ages on every facts read: injected in tests, the present otherwise. */
+  constructor(private readonly clock: () => Date = () => new Date()) {}
+
   private factsCard(card: CardWithCompany): CardWithCompany {
     const originals = this.memoryOriginals.get(card.card.deckId) ?? readCloudCache().get(card.card.deckId)?.companySourceAttempts;
-    return projectCompanyCardFacts(card, originals);
+    // Assessed afresh on read, like every facts path; any assessment the cached card carries is discarded.
+    return projectCompanyCardFacts(card, originals, { now: this.clock() });
   }
 
   async listMarkets(): Promise<Market[]> {

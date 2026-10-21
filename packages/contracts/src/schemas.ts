@@ -126,6 +126,73 @@ export const citationSchema = z.object({
 });
 
 /**
+ * CRAAP source assessment (currency, relevance, authority, accuracy, purpose):
+ * a deterministic read of how fresh, how authoritative and how independent the
+ * sources behind one figure are (research/source-assessment.ts has the rules).
+ * Additive and optional; stored on a metric as `assessment`. It never holds a
+ * figure's value, only what the evidence behind it looks like.
+ */
+export const CURRENCY_STATES = ['current', 'aging', 'stale', 'undated'] as const;
+export const PERIOD_KINDS = ['fiscal_year', 'ttm', 'run_rate', 'quarter', 'point_in_time', 'event', 'unstated'] as const;
+export const ACCURACY_SUPPORTS = ['human', 'original_passage', 'page_quote', 'computed', 'page_confirmed', 'search_attributed', 'none'] as const;
+export const CORROBORATIONS = ['single', 'corroborated', 'contested', 'none'] as const;
+export const PURPOSE_KINDS = [
+  'regulatory_filing', 'company_reported', 'press_release', 'sponsored_or_contributor', 'competitor', 'advocacy',
+  'neutral_reporting', 'industry_data', 'community', 'unknown',
+] as const;
+export const ASSESSMENT_EFFECTS = ['none', 'labelled_stale', 'demoted_stale', 'shown_aged_out', 'demoted_authority'] as const;
+export const ASSESSMENT_VERDICTS = ['human_checked', 'strong', 'fair', 'weak', 'no_figure'] as const;
+export const figureAssessmentSchema = z.object({
+  version: z.literal(1),
+  assessedAt: isoTimestamp,
+  currency: z.object({
+    /** The figure's OWN date (YYYY-MM-DD), never a capture or retrieval time; null when undated. */
+    asOf: z.string().nullable(),
+    asOfSource: z.enum(['figure', 'filing', 'none']),
+    /** Upper bound from the page's publication date: it can make a figure older, never newer. */
+    notAfter: z.string().nullable(),
+    notAfterSource: z.enum(['page', 'url']).nullable(),
+    ageDays: z.number().int().nonnegative().nullable(),
+    state: z.enum(CURRENCY_STATES),
+    freshDays: z.number().int().positive(),
+    staleDays: z.number().int().positive(),
+  }),
+  relevance: z.object({
+    definition: z.string().nullable(),
+    period: z.enum(PERIOD_KINDS),
+    issues: z.array(z.string().max(60)).max(8),
+  }),
+  authority: z.object({
+    tier: z.number().int().min(1).max(5).nullable(),
+    publisher: z.string().nullable(),
+    level: z.enum(['strong', 'acceptable', 'weak']).nullable(),
+  }),
+  accuracy: z.object({
+    support: z.enum(ACCURACY_SUPPORTS),
+    independentSources: z.number().int().nonnegative(),
+    corroboration: z.enum(CORROBORATIONS),
+    plausibility: z.enum(['ok', 'flagged', 'unchecked']),
+    newerObservation: z.object({
+      value: z.number().nullable(),
+      asOf: z.string().nullable(),
+      publisher: z.string().nullable(),
+    }).nullable(),
+  }),
+  purpose: z.object({
+    kind: z.enum(PURPOSE_KINDS),
+    reportedBy: z.enum(['regulator', 'company', 'independent', 'unknown']),
+  }),
+  score: z.number().int().min(0).max(100).nullable(),
+  verdict: z.enum(ASSESSMENT_VERDICTS),
+  effect: z.enum(ASSESSMENT_EFFECTS),
+  summary: z.string().max(240),
+});
+export type FigureAssessment = z.infer<typeof figureAssessmentSchema>;
+export type PeriodKind = (typeof PERIOD_KINDS)[number];
+export type PurposeKind = (typeof PURPOSE_KINDS)[number];
+export type AssessmentEffect = (typeof ASSESSMENT_EFFECTS)[number];
+
+/**
  * The year a company was founded, stored once with where it came from so the
  * header is stable and the completeness scoreboard can measure it. Never a
  * guess: 'wikidata' is the company's own item (matched by its official
@@ -295,6 +362,43 @@ export const companyMetricSchema = z.object({
   /** Last completed check, including inconclusive attempts; not evidence of support. */
   lastVerificationAttemptAt: isoTimestamp.nullish(),
   /**
+   * Source check of this figure (research/assess-facts.ts). Computed on READ with
+   * an injected clock and never stored as truth: any `assessment` arriving from
+   * storage, a share or transport is discarded and recomputed. Never holds a value.
+   */
+  assessment: figureAssessmentSchema.nullish(),
+  /**
+   * A newer figure that was NOT allowed to replace this one because it is less
+   * authoritative (latest-wins keeps the stronger row and records the newer one).
+   */
+  newerObservation: z
+    .object({
+      value: z.number().nullable(),
+      asOf: z.string().nullable(),
+      publisher: z.string().nullable(),
+      capturedAt: isoTimestamp,
+    })
+    .nullish(),
+  /**
+   * Figures this row replaced because a newer, at-least-as-authoritative one
+   * arrived (newest first, bounded). Kept with their own date, never deleted.
+   */
+  priorFigures: z
+    .array(
+      z.object({
+        value: z.number().nullable(),
+        confidence: confidenceSchema,
+        source: z.string().nullable(),
+        /** The figure's stated period or publication date (YYYY, YYYY-MM or YYYY-MM-DD); null when it had none. */
+        asOf: z.string().nullable(),
+        capturedAt: isoTimestamp,
+        supersededAt: isoTimestamp,
+        reason: z.string().max(300),
+      }),
+    )
+    .max(8)
+    .optional(),
+  /**
    * This figure's own decay window. Written onto the row rather than derived at
    * read time, so a later policy change cannot silently reinterpret the
    * freshness of data already on disk. Null = never auto-refresh.
@@ -311,6 +415,8 @@ export const companyMetricSchema = z.object({
             source: z.string().nullable(),
             capturedAt: isoTimestamp,
             passageSupport: metricPassageSupportSchema.nullish(),
+            asOf: z.string().nullish(),
+            publisher: z.string().nullish(),
           }),
         ),
         detectedAt: isoTimestamp,

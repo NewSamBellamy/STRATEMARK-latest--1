@@ -16,7 +16,7 @@ import {
   type CardWithCompany,
   type MarketIntelRepository,
 } from '@mi/contracts';
-import { projectCompanyFacts } from '@mi/research';
+import { projectCompanyCardFacts } from '@mi/research';
 
 /** Cap the pre-share verification burn: at most this many grounded checks. */
 const MAX_CHECKS = 5;
@@ -25,6 +25,7 @@ export async function verifyCardForShare(
   repo: MarketIntelRepository,
   data: CardWithCompany,
   onStage: (stage: string) => void,
+  now: Date = new Date(),
 ): Promise<CardWithCompany> {
   const companyId = data.company?.id ?? null;
   if (!companyId || !data.company) return data;
@@ -48,6 +49,7 @@ export async function verifyCardForShare(
     return { ...data, metrics: fresh };
   } catch {
     // No unsafe fallback to legacy labels when the host is old or offline.
-    return { ...data, metrics: projectCompanyFacts(data.company, data.metrics, []) };
+    // The same read-time composition as every facts path (assessed afresh; a signal card gets no facts).
+    return projectCompanyCardFacts(data, [], { now });
   }
 }

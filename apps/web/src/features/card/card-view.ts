@@ -474,7 +474,7 @@ export function estimateHolds(company: Pick<Company, 'name' | 'websiteUrl'> | nu
  * plainly ("Not found yet"); a figure is never invented to fill a slot.
  */
 function strongestFaceMetrics(metrics: readonly MetricView[], profile: readonly ProfileSlot[],
-  marketProfile: 'operating_company' | 'financial_firm', company: CardWithCompany['company']): ProfileSlot[] {
+  marketProfile: 'operating_company' | 'financial_firm', company: CardWithCompany['company'], includeStale = false): ProfileSlot[] {
   const importance = FACE_IMPORTANCE[marketProfile];
   const rank = (type: MetricType) => { const i = importance.indexOf(type); return i < 0 ? importance.length : i; };
   type Candidate = ProfileSlot & { strength: number; type: MetricType };
@@ -487,6 +487,8 @@ function strongestFaceMetrics(metrics: readonly MetricView[], profile: readonly 
     if (metric.value != null && (m.citations.length > 0 || metric.confidence === 'user_verified')) {
       const strength = metric.confidence === 'user_verified' ? 0 : metric.confidence === 'verified' ? 1 : metric.confidence === 'estimated' ? 2 : -1;
       if (strength < 0) continue;
+      // A stale figure shows dated on the dashboard, never on the card face (a human-checked one has no assessment). The dashboard (companyFace) keeps it.
+      if (!includeStale && strength > 0 && metric.assessment?.currency.state === 'stale') continue;
       // Estimates must re-check here: a grounded-answer sentence or a quote from
       // a fetched page. An estimate with neither stays off the face.
       if (strength === 2 && !estimateHolds(company, metric)) continue;
@@ -498,16 +500,22 @@ function strongestFaceMetrics(metrics: readonly MetricView[], profile: readonly 
       candidates.push({ ...m, key, label: 'Employees (range)', display: `${range.low}–${range.high}`, type, strength: 3, confidence: 'Source reported' });
     }
   }
-  candidates.sort((a, b) => a.strength - b.strength || rank(a.type) - rank(b.type));
-  const families = new Set<string>();
-  const chosen: Candidate[] = [];
+  // Within a family: strength first, then how current the figure is, then its source-check score, then importance.
+  // A figure with no assessment ranks as undated with no score, so without assessments this is today's order.
+  const currencyRank = (c: Candidate) => { const s = c.metric?.assessment?.currency.state; return s === 'current' ? 0 : s === 'aging' ? 1 : 2; };
+  const score = (c: Candidate) => c.metric?.assessment?.score ?? -1;
+  const better = (a: Candidate, b: Candidate) =>
+    a.strength - b.strength || currencyRank(a) - currencyRank(b) || score(b) - score(a) || rank(a.type) - rank(b.type);
+  const bestOfFamily = new Map<string, Candidate>();
   for (const c of candidates) {
     const family = faceFamilyOf(c.type);
-    if (families.has(family)) continue;
-    families.add(family);
-    chosen.push(c);
-    if (chosen.length === CARD_FACE_SIZE) break;
+    const held = bestOfFamily.get(family);
+    if (!held || better(c, held) < 0) bestOfFamily.set(family, c);
   }
+  // Families by their chosen figure's strength, then importance; take the face's size.
+  const chosen = [...bestOfFamily.values()]
+    .sort((a, b) => a.strength - b.strength || rank(a.type) - rank(b.type))
+    .slice(0, CARD_FACE_SIZE);
   // Stable reading order on the face: by importance, not by strength.
   chosen.sort((a, b) => rank(a.type) - rank(b.type));
   const face: ProfileSlot[] = chosen.map(({ strength: _s, type: _t, ...slot }) => slot);
@@ -560,7 +568,7 @@ export function faceFigureStatus(item: Pick<ProfileSlot, 'metric' | 'confidence'
             citation ? 'Source linked' : 'No source-backed figure';
 }
 
-export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null = null) {
+export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null = null, opts: { includeStale?: boolean } = {}) {
   const signal = isSignalCardType(data.card.cardType) || !data.company;
   // Only this card's own company's figures: a rival's row in the same payload never shows here.
   const own = signal ? [] : data.metrics.filter((m) => m.companyId === data.company?.id);
@@ -657,7 +665,7 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
           metric: undefined,
         };
       });
-  const faceMetrics = signal ? [] : strongestFaceMetrics(metrics, profileMetrics, marketProfile, data.company);
+  const faceMetrics = signal ? [] : strongestFaceMetrics(metrics, profileMetrics, marketProfile, data.company, opts.includeStale === true);
   const maturity = data.card.cardType === 'company' && !signal && data.card.tier != null &&
     profileMetrics.some((m) => m.metric?.value != null && m.citations.length > 0)
     ? { tier: data.card.tier, label: TIER_LABELS[data.card.tier] } : null;
@@ -718,7 +726,7 @@ export function buildCardView(data: CardWithCompany, rating: OvrBreakdown | null
 export function companyFace(company: Company, metrics: readonly CompanyMetric[]): CardView['faceMetrics'] {
   const card = { id: `face_${company.id}`, deckId: '', companyId: company.id, cardType: 'company', title: company.name,
     tier: null, summary: null, keyPoints: [], citations: [] } as unknown as CardWithCompany['card'];
-  return buildCardView({ card, company, metrics: [...metrics], viceClaims: [] }).faceMetrics;
+  return buildCardView({ card, company, metrics: [...metrics], viceClaims: [] }, null, { includeStale: true }).faceMetrics;
 }
 
 /** For callers that want null rather than undefined; the rule itself lives in safeHttpUrl. */

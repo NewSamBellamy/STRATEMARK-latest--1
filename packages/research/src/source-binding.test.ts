@@ -37,6 +37,15 @@ describe('figureOnPage', () => {
   });
 });
 
+describe('checkFromReceipt publishedAt', () => {
+  it('copies the page date for a read page and omits it otherwise', () => {
+    const dated = { ...receipt('Anthropic is valued at $965 billion.'), publishedAt: '2026-05-28' };
+    expect(checkFromReceipt('Anthropic', [965e9], dated).publishedAt).toBe('2026-05-28');
+    expect(checkFromReceipt('Anthropic', [965e9], receipt('Anthropic is valued at $965 billion.'))).not.toHaveProperty('publishedAt');
+    expect(checkFromReceipt('Anthropic', [965e9], { ...dated, status: 'unavailable' })).not.toHaveProperty('publishedAt');
+  });
+});
+
 describe('applySourceChecks', () => {
   const key = sourceCheckKey('c', 'valuation', [965e9], REDIRECT);
 

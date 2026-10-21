@@ -42,6 +42,7 @@ import {
 import { Section, metricLabel } from '../dashboardKit';
 import { buildFigureSet, currencyCaptionFor, dropRestatedRevenue, figureDates, figureDisplay, figureTrust, linkedCitation } from '../figureSet';
 import { shortCompanyName } from '../companyNames';
+import { SourceCheck } from '../SourceCheck';
 import { usePeers, type PeerState } from '../usePeers';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 
@@ -470,6 +471,8 @@ function MetricTable({
                       {currency && <span className="block text-muted">{currency}</span>}
                     </span>
                   )}
+                  {/* The Source column is hidden on a phone, so the check sits under the value there. */}
+                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5 max-w-[200px] sm:hidden" />}
                 </td>
                 <td className="hidden max-w-[180px] px-3 py-3 sm:table-cell">
                   {cite && known ? (
@@ -487,6 +490,7 @@ function MetricTable({
                   {known && <span className="block text-[11px] text-faint">{trust}</span>}
                   {known && <span className="block text-[11px] text-faint md:hidden">{periodLine}{dates?.record ? ` · ${dates.record}` : ''}</span>}
                   {currency && <span className="block text-[11px] text-muted">{currency}</span>}
+                  {known && <SourceCheck metric={metric} label={metricLabel(metric)} className="mt-0.5" />}
                 </td>
                 <td className="hidden px-3 py-3 text-[12px] text-muted md:table-cell">
                   {/* Two different dates: the period the source reports, and when we captured it. */}

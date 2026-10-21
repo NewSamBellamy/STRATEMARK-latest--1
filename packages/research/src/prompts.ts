@@ -145,6 +145,30 @@ export function structureDiscoveryPrompt(
  * "as of" turned a 2022 round into a current one on the card. */
 export const FIGURE_DATE_RULE = 'The date is the date the source gives for that figure (when the round closed, when the count was reported). If the source gives no date, write "undated": never use today\'s date, the search date or a year-end as a stand-in, and never restate an older round as current.';
 
+/** Latest-first wording for hunt and verify prompts. It deliberately carries no year or
+ * today's date: year tokens measurably pulled in other companies' reports and undated
+ * aggregator pages (PLAN-CRAAP section 0), and a model told today's date stamps it on
+ * figures. Newest-first also comes from ordering search results by their `published` date. */
+export const LATEST_PERIOD_RULE = 'LATEST FIRST: look for the latest reporting period (the most recent fiscal year, quarter or dated announcement) before any older one. Report an older figure only when nothing newer exists, and say how old it is. A newer figure replaces one we already hold only when its source is at least as authoritative; otherwise report it anyway and say so.';
+
+export interface HeldFigureLine {
+  label: string;
+  value: number;
+  /** The figure's own stated date (YYYY, YYYY-MM or YYYY-MM-DD), null when it has none. */
+  asOf: string | null;
+  /** Where the held figure came from (publisher or host), null when unknown. */
+  publisher: string | null;
+}
+
+/** "We already hold X as of D (source)" lines, built only from stored rows (never invented). */
+export function heldFigureLines(held: readonly HeldFigureLine[]): string[] {
+  if (!held.length) return [];
+  return [
+    'WE ALREADY HOLD (look for something newer or better dated; a figure that is not newer does not replace these):',
+    ...held.map((h) => `- ${h.label}: we already hold ${h.value} ${h.asOf ? `as of ${h.asOf}` : 'with no date'}${h.publisher ? ` (${h.publisher})` : ''}`),
+  ];
+}
+
 /** The face of a card carries four figures. Small private brands rarely publish
  * ARR or a valuation, so ask for every figure a source may honestly state. A
  * figure no source states is "not disclosed" — never an estimate of our own. */

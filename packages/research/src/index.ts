@@ -65,3 +65,6 @@ export * from './product-brief';
 export * from './signal-brief';
 export * from './signal-brief-sift';
 export * from './link-reader';
+export * from './source-assessment';
+export * from './assess-facts';
+export * from './compare-observations';

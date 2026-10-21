@@ -7,6 +7,7 @@ import {
   isPlausibleSearchKey,
   parseSearchRelayRequest,
   parseSearchResponse,
+  publishedAtMs,
   relayWebSearch,
   relevantSearchResults,
   runProviderSearch,
@@ -136,6 +137,11 @@ describe('huntSearchQueries', () => {
     expect(huntSearchQueries('Ramp', ['arr', 'valuation', 'aum', 'employees'], { year: 2026 })).toHaveLength(3);
   });
 
+  it('puts no year token or "latest" in any family query (a live measurement showed they pull in other companies and undated aggregators)', () => {
+    const queries = huntSearchQueries('Ramp', ['arr', 'valuation', 'employees'], { year: 2026 });
+    for (const q of queries) expect(q.query).not.toMatch(/\b(19|20)\d{2}\b|latest/i);
+  });
+
   it('leads with filings on escalation and Form ADV for financial firms', () => {
     expect(huntSearchQueries('Acme "Capital"', ['employees'], { escalation: 1, financialFirm: true, year: 2026 })).toEqual([
       { query: '"Acme Capital" annual report filing disclosure', news: false },
@@ -193,6 +199,27 @@ describe('webSearchLane', () => {
     expect(notes.queries).toEqual(['one', 'two', 'bad']);
     expect(notes.text).toContain('[published 2026-03-01]');
     expect(notes.grounding).toBeUndefined();
+  });
+
+  it('orders results newest first by published date, undated last, keeping provider order for ties', async () => {
+    const search = async () => [
+      { url: 'https://undated-1.com/', title: 'U1', snippet: '' },
+      { url: 'https://old.com/', title: 'Old', snippet: '', published: '2024-01-05' },
+      { url: 'https://new.com/', title: 'New', snippet: '', published: '2026-10-01' },
+      { url: 'https://undated-2.com/', title: 'U2', snippet: '' },
+      { url: 'https://recent.com/', title: 'Recent', snippet: '', published: '2026-10-15' },
+    ];
+    const notes = await webSearchLane(search).discover(['q']);
+    expect(notes.citations.map((c) => c.url)).toEqual([
+      'https://recent.com/', 'https://new.com/', 'https://old.com/', 'https://undated-1.com/', 'https://undated-2.com/']);
+  });
+
+  it('reads relative ages against an injected clock and never treats a future date as a publication date', () => {
+    const now = new Date('2026-10-20T12:00:00Z');
+    expect(publishedAtMs('2 days ago', now)).toBe(Date.parse('2026-10-18T12:00:00Z'));
+    expect(publishedAtMs('2027-05-01', now)).toBeNull();
+    expect(publishedAtMs('yesterday-ish', now)).toBeNull();
+    expect(publishedAtMs(undefined, now)).toBeNull();
   });
 
   it('says plainly when nothing came back', async () => {
