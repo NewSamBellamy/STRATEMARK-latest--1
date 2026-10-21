@@ -671,3 +671,27 @@ describe('the lifetime allowance, attacked', () => {
     expect(record!.spent).toBeGreaterThan(100_000);
   });
 });
+
+describe('the free news relay tells an outage from an empty feed', () => {
+  const news = (env: never) => worker.fetch(new Request('https://worker.example/v1/news', {
+    method: 'POST', headers: { origin: APP, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' }, body: JSON.stringify({ query: 'Ramp funding' }),
+  }), env);
+
+  it('answers 200 with [] only when the feed answered nothing', async () => {
+    const { env } = makeEnv();
+    fetchMock.mockImplementation(async () => new Response('<rss><channel></channel></rss>', { status: 200 }));
+    const res = await news(env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ results: [] });
+  });
+
+  it('answers 502 with an error when the feed refuses, fails or is unreachable', async () => {
+    const { env } = makeEnv();
+    fetchMock.mockImplementation(async () => new Response('', { status: 429 }));
+    const refused = await news(env);
+    expect(refused.status).toBe(502);
+    expect(await refused.json()).toEqual({ error: expect.any(String) });
+    fetchMock.mockImplementation(async () => { throw new TypeError('network down'); });
+    expect((await news(env)).status).toBe(502);
+  });
+});

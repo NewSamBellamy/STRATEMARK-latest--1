@@ -8,7 +8,7 @@ import type { WebSearchFn } from './web-search';
 const HOUR = 60 * 60_000;
 
 /** A workspace with the fixture deck (Acme Robotics, Beta Capital, Gamma Shop), a news feed and one sorting model. */
-function movesRepo(news: WebSearchFn, sec: { down: boolean } = { down: false }) {
+function movesRepo(news: WebSearchFn, sec: { down: boolean } = { down: false }, movesNews?: WebSearchFn) {
   let saved = { ...completenessFixture(), viceClaims: [], reports: [], briefings: [], savedCards: [],
     opportunity: {}, researchJobs: [], threads: [] } as unknown as RepoSnapshot;
   const structure = vi.fn(async (prompt: string, schema: ZodType<unknown>) => {
@@ -19,6 +19,7 @@ function movesRepo(news: WebSearchFn, sec: { down: boolean } = { down: false }) 
   const newsSearch = vi.fn(news);
   const repo = new GeminiRepository({ apiKey: 'test', client: { structure, ground: vi.fn() } as unknown as LlmClient,
     newsSearch: () => newsSearch,
+    ...(movesNews ? { movesNewsSearch: () => movesNews } : {}),
     // SEC answers that none of the fixture companies is a registrant, unless it is down.
     originalSourceReader: async (url) => (sec.down || !url.includes('company_tickers')
       ? { requestedUrl: url, status: 'unavailable', retrievedAt: new Date().toISOString(), reason: 'offline' }
@@ -88,6 +89,53 @@ describe('Today in the workspace', () => {
       vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
       expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 1 });
     } finally { vi.useRealTimers(); }
+  });
+
+  it('Today reads its own strict lane: a feed that is down is retried in 2 hours even when the hunt lane would answer "no leads"', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let down = true;
+      const { repo, newsSearch } = movesRepo(async () => [], { down: false },
+        async (query) => { if (down) throw new Error('relay answered 429'); return feed(query); });
+      await repo.followCompanies(['acme']);
+      expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
+      // Not looked at again on the next open, but within hours.
+      expect(await repo.refreshMoves()).toMatchObject({ added: 0, refreshed: 0 });
+      down = false;
+      vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
+      expect(await repo.refreshMoves()).toMatchObject({ added: 1, refreshed: 1 });
+      expect(newsSearch).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('says honestly when each company was last checked, and which could not be reached, from stored state', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      let down = true;
+      const { repo } = movesRepo(async (query) => { if (down && query.includes('Gamma')) throw new Error('feed down'); return feed(query); });
+      await repo.followCompanies(['acme', 'gamma']);
+      expect((await repo.listFollows()).map((f) => f.lastCheckedAt ?? null)).toEqual([null, null]);
+      const first = await repo.refreshMoves();
+      expect(first).toMatchObject({ refreshed: 1, failed: ['gamma'] });
+      const [acme, gamma] = await repo.listFollows();
+      expect(acme).toMatchObject({ companyId: 'acme', lastCheckedAt: first.refreshedAt });
+      expect(acme!.checkFailedAt ?? null).toBeNull();
+      // The retry time parked for the failed company is not shown as a time it was checked.
+      expect(gamma).toMatchObject({ companyId: 'gamma', lastCheckedAt: null });
+      expect(gamma!.checkFailedAt).toEqual(expect.any(String));
+      down = false;
+      vi.setSystemTime(Date.now() + 2 * HOUR + 1_000);
+      const second = await repo.refreshMoves();
+      expect(second).toMatchObject({ refreshed: 1, failed: [] });
+      const after = await repo.listFollows();
+      expect(after.every((f) => f.lastCheckedAt && !f.checkFailedAt)).toBe(true);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('when every feed is down no check time is claimed at all', async () => {
+    const { repo } = movesRepo(async () => { throw new Error('feed down'); });
+    await repo.followCompanies(['acme']);
+    expect(await repo.refreshMoves()).toMatchObject({ refreshed: 0, refreshedAt: null, failed: ['acme'] });
   });
 
   it('an SEC outage does not count as a look, and does not hold back the news', async () => {

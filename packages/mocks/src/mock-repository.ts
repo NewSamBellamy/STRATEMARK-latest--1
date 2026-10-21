@@ -535,7 +535,9 @@ export class MockRepository implements MarketIntelRepository {
   }
 
   refreshMoves(): Promise<MovesRefreshResult> {
-    return this.delay({ added: 0, refreshed: 0, refreshedAt: new Date().toISOString() });
+    const at = new Date().toISOString();
+    this.follows = this.follows.map((follow) => ({ ...follow, lastCheckedAt: at }));
+    return this.delay({ added: 0, refreshed: 0, refreshedAt: at, failed: [] });
   }
 
   markMoveRead(moveId: string, read: boolean): Promise<void> {

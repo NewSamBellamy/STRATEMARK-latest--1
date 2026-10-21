@@ -9,7 +9,9 @@
  *
  * Discovery only, like every search lane: a result names a candidate article.
  * Figures still come only from the article itself through the same gates.
- * The feed is unofficial, so every failure degrades to "no extra candidates".
+ * The feed is unofficial: the hunt degrades every failure to "no extra
+ * candidates" (runNewsSearch); Today must tell a failure from an empty feed
+ * (fetchNewsSearch throws), so a down feed is retried, never filed as "no news".
  */
 import type { WebSearchResult } from './web-search';
 
@@ -69,8 +71,17 @@ export function parseBingNewsRss(xml: string): WebSearchResult[] {
   return out;
 }
 
-/** Relay side: fetch and parse one news query. Any failure is an empty result. */
-export async function runNewsSearch(query: string, fetchImpl: typeof fetch, timeoutMs = 8_000): Promise<WebSearchResult[]> {
+/** The feed could not be reached or refused to answer: not the same as "no stories". */
+export class NewsFeedError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = 'NewsFeedError';
+  }
+}
+
+/** Relay side: fetch and parse one news query. An unreachable or refusing feed
+ * THROWS `NewsFeedError`; an empty array means the feed answered with nothing. */
+export async function fetchNewsSearch(query: string, fetchImpl: typeof fetch, timeoutMs = 8_000): Promise<WebSearchResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
   const controller = new AbortController();
@@ -80,12 +91,22 @@ export async function runNewsSearch(query: string, fetchImpl: typeof fetch, time
       signal: controller.signal,
       headers: { Accept: 'application/rss+xml, application/xml, text/xml', 'User-Agent': 'Stratemark-Research/1.0 (+https://getstratemark.com)' },
     });
-    if (!response.ok) return [];
+    if (!response.ok) throw new NewsFeedError(`The news feed answered ${response.status}.`, response.status);
     return parseBingNewsRss(await response.text());
-  } catch {
-    return [];
+  } catch (error) {
+    if (error instanceof NewsFeedError) throw error;
+    throw new NewsFeedError(controller.signal.aborted ? 'The news feed timed out.' : 'The news feed could not be reached.');
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** Tolerant form for the hunt: any failure is an empty result. */
+export async function runNewsSearch(query: string, fetchImpl: typeof fetch, timeoutMs = 8_000): Promise<WebSearchResult[]> {
+  try {
+    return await fetchNewsSearch(query, fetchImpl, timeoutMs);
+  } catch {
+    return [];
   }
 }
 
