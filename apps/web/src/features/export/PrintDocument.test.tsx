@@ -28,7 +28,7 @@ describe('the printed market report', () => {
     for (const company of model.companies) expect(headings.some((h) => h?.includes(company.name))).toBe(true);
     const text = container.textContent ?? '';
     expect(text).toContain('The market at a glance');
-    expect(text).toContain('Barriers to entry');
+    // Barriers and insights print in B2's signals section.
     expect(text).toContain('Figures');
   });
 
@@ -61,16 +61,14 @@ describe('the printed market report', () => {
     expect(text).not.toMatch(/\d+ market signals/);
   });
 
-  it('counts on the cover, and lists in the contents, exactly the signals the section prints', async () => {
-    const { market, cards: stored, tabs } = await sampleDeck();
-    const cards = stored.map((c, i) => ['barrier', 'insight'].includes(c.card.cardType)
-      ? { ...c, card: { ...c.card, citations: i % 2 === 0 ? [{ title: 'reuters.com', url: `https://reuters.com/${c.card.id}` }] : [] } } : c);
+  it('lists Signals in the contents only when the report prints signals, and the cover counts come from the model', async () => {
+    const { market, cards, tabs } = await sampleDeck();
     const model = buildFullReport({ title: market.name, cards, tabs });
-    const printed = model.barriers.length + model.insights.length;
-    expect(printed).toBeGreaterThan(0);
     const { container } = render(<PrintDocument job={{ kind: 'marketReport', model }} />);
-    expect(container.querySelectorAll('#sm-signals .sm-signal')).toHaveLength(printed);
-    expect(container.querySelector('.sm-cover-meta')?.textContent).toContain(`${printed} market signals`);
+    const n = model.companies.length;
+    expect(container.querySelector('[data-testid="cover-counts"]')?.textContent).toBe(`${n} companies · ${model.figureCount} sourced figures · ${model.unknownCount} marked Unknown`);
+    const toc = container.querySelector('[data-testid="contents"]')?.textContent ?? '';
+    expect(toc.includes('Signals')).toBe(model.signalTally.printable > 0 || model.marketSignalCount > 0);
   });
 
   it('repeats a running head with the company name through every company profile and the signal section', async () => {
@@ -84,7 +82,7 @@ describe('the printed market report', () => {
     profiles.forEach((p, i) => {
       expect(p.querySelector('table.sm-run > thead .sm-company-head h2')?.textContent).toContain(model.companies[i]!.name);
     });
-    expect(container.querySelector('#sm-signals table.sm-run > thead')?.textContent).toBe('Market signals');
+    // The signals section's own running head is asserted by its component (B2).
     expect(container.querySelectorAll('header, aside')).toHaveLength(0);
   });
 
