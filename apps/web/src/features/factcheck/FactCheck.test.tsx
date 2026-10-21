@@ -108,4 +108,10 @@ describe('metric fact-check evidence route', () => {
     expect(screen.getByRole('button', { name: 'Verification unavailable' })).toBeDisabled();
     expect(factCheck).not.toHaveBeenCalled();
   });
+  it('can hide itself where verification is unavailable, so it never sits beside a Verified badge', () => {
+    renderWithProviders(<FactCheck claim="Example has 100 employees" companyName="Example"
+      companyId={base.companyId} metricType="employees" hideWhenUnavailable />,
+      { repository: Object.assign(makeRepo(), { factCheck: vi.fn(), verifyMetric: undefined }) });
+    expect(screen.queryByRole('button', { name: 'Verification unavailable' })).not.toBeInTheDocument();
+  });
 });

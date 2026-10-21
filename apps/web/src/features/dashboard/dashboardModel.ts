@@ -10,6 +10,7 @@ import {
   type CompanyMetric,
   type MetricType,
 } from '@mi/contracts';
+import { figureCurrency } from './figureCurrency';
 
 export type MetricFamily = 'financials' | 'value_funding' | 'reach_scale';
 
@@ -153,7 +154,8 @@ export interface PeerRanking {
 
 export function comparableKnown(entry: PeerEntry, type: MetricType): CompanyMetric | undefined {
   const m = entry.metrics.find((x) => x.metricType === type);
-  return m && isKnown(m) && comparableMetricBasis(m) ? m : undefined;
+  // A figure reported in another currency is never ranked against dollar figures.
+  return m && isKnown(m) && comparableMetricBasis(m) && !figureCurrency(m) ? m : undefined;
 }
 
 /**

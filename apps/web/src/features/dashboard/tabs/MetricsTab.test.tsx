@@ -91,11 +91,22 @@ describe('dashboard metric evidence projection', () => {
   it('never claims a source for a figure that has no link', async () => {
     show({ confidence: 'estimated' });
     const table = await screen.findByRole('table');
-    expect(within(table).getByText('No link recorded')).toBeInTheDocument();
+    expect(within(table).getAllByText('No link recorded').length).toBeGreaterThan(0);
     expect(within(table).getByText('Estimated')).toBeInTheDocument();
     expect(within(table).queryByText('Reported')).not.toBeInTheDocument();
     expect(screen.queryByText(/each with its source/)).not.toBeInTheDocument();
     expect(screen.getByText(/1 without a source link yet/)).toBeInTheDocument();
+  });
+  it('says "Period not reported" and shows the capture date as a separate, labelled date', async () => {
+    show({ confidence: 'estimated', capturedAt: '2026-07-30T15:11:40.256Z' });
+    const table = await screen.findByRole('table');
+    expect(within(table).queryByText('Undated')).not.toBeInTheDocument();
+    expect(within(table).getAllByText('Period not reported').length).toBeGreaterThan(0);
+    expect(within(table).getAllByText(/captured \d{1,2} Jul 2026/).length).toBeGreaterThan(0);
+  });
+  it('explains what the rank denominators count', async () => {
+    show({ confidence: 'estimated' });
+    expect(await screen.findByText(/count differs by row/)).toBeInTheDocument();
   });
   it('says every found figure has its source only when each one links to it', async () => {
     show({ confidence: 'estimated', source: 'https://sec.gov/Archives/report',

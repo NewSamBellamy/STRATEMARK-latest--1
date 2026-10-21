@@ -18,9 +18,11 @@ export function FactCheck(props: Parameters<typeof FactCheckInner>[0]) {
   return useSupports('factCheck') ? <FactCheckInner {...props} /> : null;
 }
 
-function FactCheckInner({ claim, companyName, context, companyId, metricType, className }: {
+function FactCheckInner({ claim, companyName, context, companyId, metricType, className, hideWhenUnavailable }: {
   claim: string; companyName: string | null; context?: string | null;
   companyId?: string | null; metricType?: MetricType | null; storedValue?: number | null; className?: string;
+  /** Show nothing, rather than a disabled "Verification unavailable", where this connection cannot verify: beside a stored Verified badge the two read as a contradiction. */
+  hideWhenUnavailable?: boolean;
 }) {
   const factCheck = useFactCheck();
   const verify = useVerifyMetric();
@@ -98,6 +100,7 @@ function FactCheckInner({ claim, companyName, context, companyId, metricType, cl
     </div>;
   }
 
+  if (unavailable && hideWhenUnavailable) return null;
   const failed = anchored ? verify.isError : factCheck.isError;
   return <div className={className}>
     <button type="button" onClick={run} disabled={pending || unavailable}

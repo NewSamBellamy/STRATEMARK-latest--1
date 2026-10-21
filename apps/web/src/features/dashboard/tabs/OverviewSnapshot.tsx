@@ -7,6 +7,7 @@ import { useCachedDashboardTab } from '../useCachedTab';
 import { Section, useTabHref } from '../dashboardKit';
 import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact, peerTable } from '../snapshot';
 import { formatMetricValue } from '@/lib/format';
+import { shortCompanyName } from '../companyNames';
 import { UnknownInline } from '@/features/card/UnknownValue';
 import { Logo } from '@/features/card/Logo';
 import { WikiAvatar } from './LeaderGrid';
@@ -182,8 +183,8 @@ export function MarketPeers({ companyId }: { companyId: string }) {
                 <tr key={row.companyId} className={cn(row.isSelf && 'bg-primary/5')} aria-current={row.isSelf ? 'true' : undefined}>
                   <th scope="row" className="px-3 py-2 text-left font-medium text-content">
                     {row.isSelf
-                      ? <span className="inline-flex items-center gap-2"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{row.name} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
-                      : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{row.name}</Link>}
+                      ? <span className="inline-flex items-center gap-2"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{shortCompanyName(row.name)} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
+                      : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{shortCompanyName(row.name)}</Link>}
                   </th>
                   {row.cells.map((cell, i) => (
                     <td key={PEER_COLUMNS[i]![0]} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
@@ -208,7 +209,7 @@ export function MarketPeers({ companyId }: { companyId: string }) {
           <li key={peer.companyId}>
             <Link to={to(peer.companyId)} className="chip inline-flex items-center gap-2 border-border text-muted hover:border-primary/50 hover:text-content">
               <Logo name={peer.name} website={peer.websiteUrl} logoUrl={peer.logoUrl} bare className="h-4 w-4" />
-              <span className="max-w-[160px] truncate">{peer.name}</span>
+              <span className="max-w-[160px] truncate">{shortCompanyName(peer.name)}</span>
             </Link>
           </li>
         ))}

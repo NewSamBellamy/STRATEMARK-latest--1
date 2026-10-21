@@ -1,10 +1,17 @@
 import type { CompanyMetric, Confidence, MetricType } from '@mi/contracts';
 
+/** Trillions carry two decimals ($4.69T), without a dangling zero ($4.6T) and with one ($1.0T). */
+function trimTrillion(t: number): string {
+  const two = t.toFixed(2);
+  return two.endsWith('0') ? t.toFixed(1) : two;
+}
+
 /** Compact USD (e.g. $6.2B, $145.0M, $600K). */
 export function formatUsd(value: number | null | undefined): string {
   if (value == null) return 'Unknown';
   if (value === 0) return '$0';
   const abs = Math.abs(value);
+  if (abs >= 1e12) return `$${trimTrillion(value / 1e12)}T`;
   if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
   if (abs >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
   if (abs >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
@@ -15,6 +22,8 @@ export function formatUsd(value: number | null | undefined): string {
 export function formatCount(value: number | null | undefined): string {
   if (value == null) return 'Unknown';
   const abs = Math.abs(value);
+  if (abs >= 1e12) return `${trimTrillion(value / 1e12)}T`;
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
   if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
   if (abs >= 1e3) return `${(value / 1e3).toFixed(1).replace(/\.0$/, '')}K`;
   return value.toLocaleString();
@@ -63,10 +72,10 @@ export function formatMetricValue(type: MetricType, value: number | null): strin
 }
 
 export const CONFIDENCE_STYLES: Record<Confidence, string> = {
-  verified: 'border-emerald-300 bg-emerald-50 text-emerald-700',
-  estimated: 'border-amber-300 bg-amber-50 text-amber-700',
-  unknown: 'border-slate-300 bg-slate-100 text-slate-600',
-  user_verified: 'border-sky-300 bg-sky-50 text-sky-700',
+  verified: 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
+  estimated: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300',
+  unknown: 'border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300',
+  user_verified: 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300',
 };
 
 /** Does a set of metrics include any estimated / unknown figures? Drives the card disclaimer. */
