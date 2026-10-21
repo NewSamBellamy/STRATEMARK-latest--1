@@ -3,7 +3,8 @@ import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { Link, useParams } from 'react-router-dom';
 import { SafeMarkdown } from '@/components/ResearchMarkdown';
 import { ArrowDown, ArrowLeft, ArrowUp, ExternalLink } from 'lucide-react';
-import { publisherOf, type CardWithCompany } from '@mi/contracts';
+import type { CardWithCompany } from '@mi/contracts';
+import { sourceLabel } from '@/features/export/exportModel';
 import { buildCardView } from '@/features/card/card-view';
 import { cn } from '@/lib/cn';
 import { useCards, useReport } from '@/hooks/data';
@@ -280,7 +281,7 @@ export default function ReportViewerPage() {
                         title={isDirectSource(c.url) ? 'Read the source' : 'Find the original story'}
                       >
                         <ExternalLink className="mt-0.5 h-3 w-3 shrink-0" />
-                        <span className="line-clamp-1">{publisherOf(c.url, c.title)}</span>
+                        <span className="line-clamp-1">{sourceLabel(c.url, c.title)}</span>
                       </a>
                     </li>
                   ))}

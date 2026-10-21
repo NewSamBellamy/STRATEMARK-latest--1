@@ -27,7 +27,6 @@ import {
   ownershipLabel,
   overviewContentSchema,
   productsRoadmapContentSchema,
-  publisherOf,
   teamOrgContentSchema,
   usableCitations,
   type CardWithCompany,
@@ -35,7 +34,7 @@ import {
   type DashboardTab,
 } from '@mi/contracts';
 import { buildCardView, fitFaceLine } from '@/features/card/card-view';
-import { buildReportModel, companiesFromCards, metricAsOf, type ReportCompany, type ReportModel } from './exportModel';
+import { buildReportModel, companiesFromCards, metricAsOf, sourceLabel, type ReportCompany, type ReportModel } from './exportModel';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { hasProseFigure, withoutProseFigures } from './proseFigures';
 
@@ -184,7 +183,7 @@ export interface MethodsCounts {
   unsourcedProfileItems: number;
 }
 
-const source = (c: Pick<Citation, 'url' | 'title'>): ReportSource => ({ title: publisherOf(c.url, c.title), url: sourceHref(c.url, c.title), direct: isDirectSource(c.url) });
+const source = (c: Pick<Citation, 'url' | 'title'>): ReportSource => ({ title: sourceLabel(c.url, c.title), url: sourceHref(c.url, c.title), direct: isDirectSource(c.url) });
 
 const once = (seen: Set<string>, text: string | null | undefined): string | null => {
   const t = (text ?? '').replace(/\s+/g, ' ').trim();
@@ -383,7 +382,7 @@ export function buildFullReport(args: {
     faceNotes.set(c.id, c.footnotes.map((f) => registry.note({ title: f.title, url: f.url, direct: f.direct })));
     for (const r of c.risks) registry.note(r.source);
     for (const s of c.culture?.sources ?? []) registry.note(s);
-    for (const n of c.news) registry.note({ title: n.publisher ?? publisherOf(n.url, n.title), url: sourceHref(n.url, n.title), direct: isDirectSource(n.url) });
+    for (const n of c.news) registry.note({ title: n.publisher ?? sourceLabel(n.url, n.title), url: sourceHref(n.url, n.title), direct: isDirectSource(n.url) });
   }
 
   // -- Signals ------------------------------------------------------------------------------------------------------

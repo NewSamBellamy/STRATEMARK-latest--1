@@ -17,6 +17,8 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { useMarkets } from '@/hooks/data';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
 import { useResearchSession } from '@/features/deck/research-session';
+import { useDeckRows } from '@/features/markets/MarketsListPage';
+import { formatUpdated } from '@/features/markets/deck-library';
 import wordmark from '@/assets/wordmark.svg';
 import { useSettingsModal } from '@/lib/settings/settingsModal';
 import { SettingsLink } from '@/components/SettingsLink';
@@ -56,6 +58,9 @@ export function Sidebar() {
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
   }, [markets.data]);
+  // Same field as the All Decks list (last refresh, else creation), so the two never disagree.
+  const deckRows = useDeckRows(recentDecks);
+  const updatedById = useMemo(() => new Map(deckRows.map((r) => [r.market.id, r.updatedAt])), [deckRows]);
 
   return (
     <aside className={cn(
@@ -141,11 +146,11 @@ export function Sidebar() {
                         )}
                       >
                         {/* Red team #19: same-name decks must be distinguishable —
-                            creation date is the identity the sidebar can always give. */}
+                            the updated date, labelled, matches the All Decks list. */}
                         <span className="min-w-0">
                           <span className="block truncate">{m.name}</span>
                           <span className="block text-[10px] text-faint">
-                            {new Date(m.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                            Updated {formatUpdated(updatedById.get(m.id) ?? m.createdAt)}
                           </span>
                         </span>
                         {isRunning && (

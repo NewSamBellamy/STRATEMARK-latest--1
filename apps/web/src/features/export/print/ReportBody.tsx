@@ -9,7 +9,7 @@
  * table is `metricRowsFor`'s. Confidence prints one way everywhere: verified in solid type, estimated in italics with
  * "est.", unknown as the muted word "Unknown".
  */
-import { publisherOf } from '@mi/contracts';
+import { sourceLabel } from '../exportModel';
 import { Logo } from '@/features/card/Logo';
 import { buildCardView, faceFigureStatus } from '@/features/card/card-view';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
@@ -145,7 +145,7 @@ function Profile({ c }: { c: FullReportCompany }) {
   const culture = c.culture ? { ...c.culture, ns: c.culture.sources.map(book.note) } : null;
   const news = c.news.map((n) => ({
     ...n,
-    n: book.note({ title: n.publisher ?? publisherOf(n.url, n.title), url: sourceHref(n.url, n.title), direct: isDirectSource(n.url) }),
+    n: book.note({ title: n.publisher ?? sourceLabel(n.url, n.title), url: sourceHref(n.url, n.title), direct: isDirectSource(n.url) }),
   }));
   const has = c.overview.length + c.products.length + c.leaders.length + c.timeline.length + news.length + risks.length > 0 || !!culture;
   if (!has) return null;
