@@ -226,7 +226,7 @@ import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { answerSize, buildChatPrompt, formatCompanyBlock, formatDeckRankings, isGreeting } from './chat-context';
-import { routeChat } from './chat-route';
+import { dropQuestionOnlyFigures, routeChat } from './chat-route';
 import { answerFromMemory, answerGreeting, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
@@ -6089,16 +6089,13 @@ export class GeminiRepository implements MarketIntelRepository {
     }
 
     const focus = (request.focus ?? '').trim();
+    // Only the sourced answers are folded in (never the analyst's questions or unsourced turns), as in the topic report.
     const conversationThreads = requestThreadIds(request)
       .map((id) => this.snap.threads.find((t) => t.id === id))
-      .filter((t): t is ResearchThread => Boolean(t));
-    const conversation = conversationThreads
-      .map((thread) => {
-        const lines = thread.messages.map((m) => `${m.role === 'user' ? 'ANALYST ASKED' : 'RESEARCH FOUND'}: ${m.text}`).join('\n');
-        return conversationThreads.length > 1 ? `CONVERSATION "${thread.title}":\n${lines}` : lines;
-      })
-      .join('\n\n')
-      .slice(0, 8000);
+      .filter(isReadableThread);
+    const found = this.reportConversation(conversationThreads.map((t) => t.id))?.found ?? '';
+    const conversation = found ? `RESEARCH FOUND:\n${found}` : '';
+    const questions = conversationThreads.flatMap((t) => t.messages.filter((m) => m.role === 'user').map((m) => m.text)).join('\n');
 
     const g = await this.client.ground(
       [
@@ -6121,7 +6118,7 @@ export class GeminiRepository implements MarketIntelRepository {
       { system: GROUNDED_SYSTEM },
     );
 
-    const markdown = await this.elevate(g.text, 'report', title);
+    const markdown = await this.elevate(dropQuestionOnlyFigures(g.text, questions, [digest, found]), 'report', title);
     const evidenceCitations = usableCitations(
       this.snap.metrics.flatMap((metric) => metric.citations).concat(g.citations),
     );

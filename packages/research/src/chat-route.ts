@@ -8,7 +8,7 @@
 import { usableCitations, type Citation } from '@mi/contracts';
 import { wordsOf } from './claim-support';
 import { CONTROVERSY } from './risk-claims';
-import { allowedFigures, dropUntraceableFigures, sanitizeSectionMarkdown } from './report-topics';
+import { allowedFigures, dropUntraceableFigures, hasUntraceableFigure, sanitizeSectionMarkdown } from './report-topics';
 
 export type ChatRoute = 'greeting' | 'fresh' | 'memory';
 
@@ -163,4 +163,18 @@ export function resolveMemoryAnswer(reply: MemoryReply | null | undefined, passa
     passageIds: named.map((p) => p.id),
     removed: guarded.removed + supported.removed,
   };
+}
+
+/**
+ * Removes every sentence whose figures are explained only by what the analyst typed: a figure in a question (hearsay) that
+ * the stored research and the sourced answers do not state. Figures a fresh search adds are not touched.
+ */
+export function dropQuestionOnlyFigures(markdown: string, questions: string, sourced: readonly string[]): string {
+  const fromQuestions = allowedFigures(questions);
+  const fromResearch = allowedFigures(...sourced);
+  return markdown.split(/\r?\n/).flatMap((line) => {
+    const kept = line.split(/(?<=[.!?])\s+(?=[A-Z0-9"“(*_])/).filter((s) =>
+      !(hasUntraceableFigure(s, fromResearch) && !hasUntraceableFigure(s, fromQuestions)));
+    return kept.length ? [kept.join(' ')] : line.trim() ? [] : [line];
+  }).join('\n');
 }
