@@ -24,7 +24,7 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
   refreshing: boolean;
   disabled: boolean;
   /** Small controls that share this one row (the background-research pause icon). */
-  control?: ReactNode;
+  control?: ReactNode | ((withoutFreshness: boolean) => ReactNode);
   now?: number;
 }) {
   const refreshedAt = useCachedDashboardTab(companyId, tab).data?.lastRefreshedAt ?? null;
@@ -37,8 +37,7 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
   const counts = tab === 'overview' && metrics ? figureCounts(metrics) : null;
   const assessed = counts ? counts.current + counts.outOfDate + counts.undated : 0;
   return (
-    // Only the pause icon (no research to date): pull the row up under the tab strip so it is not a bare band of space.
-    <div className={cn('flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-[11.5px] text-faint', showFreshness ? 'mb-3' : '-mt-2 mb-1')} data-testid="freshness-row">
+    <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-faint" data-testid="freshness-row">
       {showFreshness && refreshedAt && (
         <>
           <span title={formatDateTime(refreshedAt)}>
@@ -47,8 +46,10 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
           </span>
           {/* The separator dot is drawn, and hidden on narrow screens, so a wrapped line never starts with one. */}
           {counts && assessed > 0 && <span className={cn('sm:before:mr-2 sm:before:content-["·"]', counts.outOfDate > 0 ? 'text-red-700 dark:text-negative' : counts.undated > 0 && 'text-muted')}>
-            Figures: {[`${counts.current} current`, counts.outOfDate > 0 && `${counts.outOfDate} out of date`, counts.undated > 0 && `${counts.undated} undated`]
-              .filter(Boolean).join(', ')}
+            {counts.current === 0 && counts.outOfDate === 0
+              ? `${counts.undated} ${counts.undated === 1 ? 'figure has' : 'figures have'} no stated date`
+              : `Figures: ${[`${counts.current} current`, counts.outOfDate > 0 && `${counts.outOfDate} out of date`, counts.undated > 0 && `${counts.undated} undated`]
+                .filter(Boolean).join(', ')}`}
             {counts.outOfDate > 0 && counts.oldest && ` · oldest: ${METRIC_TYPE_LABELS[counts.oldest.label]}, ${statedMonth(counts.oldest.asOf)}`}
           </span>}
           <button
@@ -63,7 +64,7 @@ export function TabFreshness({ companyId, tab, onRefresh, refreshing, disabled, 
           </button>
         </>
       )}
-      {control}
+      {typeof control === 'function' ? control(!showFreshness) : control}
     </div>
   );
 }

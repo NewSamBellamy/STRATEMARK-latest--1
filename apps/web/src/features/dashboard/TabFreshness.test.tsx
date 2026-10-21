@@ -52,11 +52,13 @@ describe('tab freshness', () => {
     expect(pause).not.toHaveTextContent(/\S/);
   });
 
-  it('keeps the pause icon on a tab with no freshness line', async () => {
+  it('on a tab with no freshness line the pause icon sits beside a plain state, left-aligned', async () => {
     const repository = Object.assign(makeRepo(), { getDashboardTab: vi.fn(async () => null) });
     renderWithProviders(<TabFreshness companyId="cmp_1" tab="live_intel" refreshing={false} disabled={false} onRefresh={vi.fn()}
-      control={<BackgroundResearchControl />} />, { repository });
+      control={(alone) => <BackgroundResearchControl showState={alone} />} />, { repository });
     const row = await screen.findByTestId('freshness-row');
+    expect(row).toHaveTextContent('Background research is on');
+    expect(row.className).not.toMatch(/justify-end|-mt-2/);
     expect(within(row).getByRole('button', { name: 'Pause background research' })).toBeInTheDocument();
     expect(within(row).queryByText(/Researched/)).not.toBeInTheDocument();
   });

@@ -596,7 +596,7 @@ export default function DashboardPage() {
                 disabled={!hasKey}
               >
                 <TabFreshness companyId={companyId} tab={activeTab} onRefresh={() => rerunTab.mutate()}
-                  refreshing={rerunTab.isPending} disabled={!hasKey} control={<BackgroundResearchControl />} />
+                  refreshing={rerunTab.isPending} disabled={!hasKey} control={(alone) => <BackgroundResearchControl showState={alone} />} />
                 <TabView tab={activeTab} companyId={companyId} />
               </ContextRerun>
             )}
