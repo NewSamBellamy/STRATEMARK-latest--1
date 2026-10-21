@@ -10,6 +10,9 @@ import { Logo } from '@/features/card/Logo';
 import { HistoryVideoHero } from './HistoryVideoHero';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { cn } from '@/lib/cn';
+import { useCachedDashboardTab } from '../useCachedTab';
+import { isFundingRoundEvent, unifyFunding, roundForEvent } from '../funding';
+import { formatUsdCompact } from '../snapshot';
 import { EmptyNote, FilterChip, SearchBox, SectionHeader, SourceLink } from './TabKit';
 import {
   classifyEvent,
@@ -51,6 +54,9 @@ export function HistoryTab({ companyId }: { companyId: string }) {
   const [foldedYears, setFoldedYears] = useState<Record<string, boolean>>({});
 
   const timeline = query.data?.content.timeline;
+  // The same rounds the Mission & governance tab lists (read only if already cached).
+  const governanceRounds = useCachedDashboardTab(companyId, 'mission_governance').data?.content.fundingRounds;
+  const rounds = useMemo(() => unifyFunding(governanceRounds, timeline), [governanceRounds, timeline]);
   // Stable per-event key: index in the research order (never re-sorted).
   const events = useMemo(
     () =>
@@ -246,6 +252,17 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                                           <span className="mt-0.5 line-clamp-2 block text-sm text-muted">{t.detail}</span>
                                         )}
                                       </button>
+                                      {isFundingRoundEvent(t) && (() => {
+                                        const r = roundForEvent(rounds, t);
+                                        const leads = r?.leadInvestors ?? [];
+                                        return (
+                                          <p className="px-3 pb-1 text-xs text-muted">
+                                            {r?.amountUsd != null ? formatUsdCompact(r.amountUsd) : 'Amount not reported'}
+                                            {leads.length > 0 && ` · ${leads.join(', ')}`}
+                                            {r?.sourceUrl && <SourceLink url={r.sourceUrl} className="ml-2" />}
+                                          </p>
+                                        );
+                                      })()}
                                     </li>
                                   ))}
                                 </ol>

@@ -522,6 +522,8 @@ export const fundingRoundSchema = z.object({
   /** When it was reported (e.g. "2026 Mar"); null when unclear. */
   date: prose().nullable().catch(null),
   leadInvestors: rows(z.string()),
+  /** Additive: the cited page that states the round; absent when none is cited. */
+  sourceUrl: z.string().optional().catch(undefined),
 });
 /** An investor with reported context — the investor-board treatment. */
 export const investorSchema = z.object({
@@ -548,6 +550,10 @@ export const timelineEventSchema = z.object({
   date: prose().transform(normalizeEventDate),
   title: z.string(),
   detail: prose(),
+  /** Additive, funding events only: what the source states, never derived. */
+  amountUsd: z.number().nullable().optional().catch(undefined),
+  investors: z.array(z.string()).optional().catch(undefined),
+  sourceUrl: z.string().optional().catch(undefined),
 });
 export const quoteSchema = z.object({
   text: z.string(),

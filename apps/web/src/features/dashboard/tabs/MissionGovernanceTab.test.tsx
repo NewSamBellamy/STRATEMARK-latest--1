@@ -56,6 +56,33 @@ describe('mission & governance tab', () => {
     expect(screen.queryByText('Major shareholders')).not.toBeInTheDocument();
   });
 
+  it('empty funding copy makes no promise about public-company offerings', async () => {
+    renderWithProviders(<MissionGovernanceTab companyId="cmp" />, {
+      repository: Object.assign(makeRepo(), { getDashboardTab: sparseTab }),
+    });
+    expect(await screen.findByText('No funding rounds or investors sourced')).toBeInTheDocument();
+    expect(screen.queryByText(/offerings/i)).not.toBeInTheDocument();
+  });
+
+  it('a round with no amount says so and a sourced round links its source', async () => {
+    const tab = vi.fn().mockResolvedValue({
+      companyId: 'cmp',
+      tab: 'mission_governance',
+      content: {
+        mission: 'Fake mission.', ethos: '', governanceStructure: '', board: [], positives: [], negatives: [], investors: [],
+        fundingRounds: [
+          { round: 'Series B', amountUsd: null, date: '2023 Feb', leadInvestors: [], sourceUrl: 'https://news.test/b' },
+        ],
+      },
+      lastRefreshedAt: '2026-10-01T00:00:00.000Z',
+    });
+    renderWithProviders(<MissionGovernanceTab companyId="cmp" />, {
+      repository: Object.assign(makeRepo(), { getDashboardTab: tab }),
+    });
+    expect(await screen.findByText('Amount not reported')).toBeInTheDocument();
+    expect(document.querySelector('a[href="https://news.test/b"]')).not.toBeNull();
+  });
+
   it('shows 5%+ holders from SEC filings, each citing its filing; an unstated percent is Unknown', async () => {
     vi.mocked(lookupMajorShareholders).mockResolvedValue([
       {

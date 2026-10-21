@@ -9,9 +9,10 @@ import { DigDeeperMenu } from '@/features/deepdive/DeepDive';
 import { InsightReader, type InsightTone } from '@/components/reader/InsightReader';
 import { WikiAvatar } from './LeaderGrid';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
-import { UnknownInline } from '@/features/card/UnknownValue';
-import { EmptyNote, FieldLabel, FilterChip, SectionHeader } from './TabKit';
+import { EmptyNote, FieldLabel, FilterChip, SectionHeader, SourceLink } from './TabKit';
 import { MajorShareholders } from './MajorShareholders';
+import { useCachedDashboardTab } from '../useCachedTab';
+import { unifyFunding } from '../funding';
 
 const INVESTOR_KIND_LABEL: Record<string, string> = {
   vc: 'Venture',
@@ -40,6 +41,8 @@ function ProseBlock({ label, text, missing }: { label: string; text: string; mis
 export function MissionGovernanceTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'mission_governance');
   const companyQ = useCompany(companyId).data;
+  // The History tab's funding events are the same rounds; read only if already cached.
+  const historyTimeline = useCachedDashboardTab(companyId, 'history').data?.content.timeline;
   const name = companyQ?.name ?? 'this company';
   // Click a signal → it opens as its own readable card (the deck-of-cards gist).
   const [openSignal, setOpenSignal] = useState<{ tone: InsightTone; text: string } | null>(null);
@@ -53,7 +56,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
         // 'Cannot read properties of undefined (reading length)' here).
         const board = c.board ?? [];
         // Newest round first, the way every funding profile reads.
-        const fundingRounds = roundsNewestFirst(c.fundingRounds ?? []);
+        const fundingRounds = roundsNewestFirst(unifyFunding(c.fundingRounds, historyTimeline));
         const investors = c.investors ?? [];
         const positives = c.positives ?? [];
         const negatives = c.negatives ?? [];
@@ -124,7 +127,7 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
               {fundingRounds.length === 0 && investors.length === 0 ? (
                 <EmptyNote compact title="No funding rounds or investors sourced">
                   Research fills this from press releases, filings and funding databases. Private
-                  companies often disclose little; public companies show offerings instead.
+                  companies often disclose little.
                 </EmptyNote>
               ) : (
                 <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
@@ -153,9 +156,12 @@ export function MissionGovernanceTab({ companyId }: { companyId: string }) {
                                   <td className="whitespace-nowrap px-4 py-2.5 text-xs font-semibold tabular-nums text-primary-ink">
                                     {r.date || <span className="font-normal text-faint">Not reported</span>}
                                   </td>
-                                  <td className="px-2 py-2.5 font-medium text-content">{r.round}</td>
+                                  <td className="px-2 py-2.5 font-medium text-content">
+                                    {r.round}
+                                    {r.sourceUrl && <SourceLink url={r.sourceUrl} className="ml-2" />}
+                                  </td>
                                   <td className="whitespace-nowrap px-2 py-2.5 text-right tabular-nums text-content">
-                                    {r.amountUsd != null ? formatUsdCompact(r.amountUsd) : <UnknownInline />}
+                                    {r.amountUsd != null ? formatUsdCompact(r.amountUsd) : <span className="text-xs font-normal text-faint">Amount not reported</span>}
                                   </td>
                                   <td className="px-4 py-2.5 text-muted">
                                     {leads.length > 0 ? leads.join(', ') : <span className="text-faint">Not reported</span>}

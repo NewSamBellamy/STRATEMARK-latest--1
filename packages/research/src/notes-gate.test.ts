@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HistoryContent, MissionGovernanceContent } from '@mi/contracts';
-import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes } from './notes-gate';
+import { attachQuoteSources, groundGovernanceInNotes, groundHistoryInNotes, keepCitedSourceUrls } from './notes-gate';
 
 const NOTES = [
   'Acme raised a $20 million Series A in March 2022 led by Sequoia Capital.',
@@ -102,5 +102,23 @@ describe('quote links', () => {
     expect(attachQuoteSources([quote('A podcast')], catalog)[0]!.sourceUrl).toBeUndefined();
     expect(attachQuoteSources([quote(undefined)], catalog)[0]!.sourceUrl).toBeUndefined();
     expect(attachQuoteSources([quote('CNBC', 'https://x.test/q')], catalog)[0]!.sourceUrl).toBe('https://x.test/q');
+  });
+});
+
+describe('funding facts on history events', () => {
+  const hist = (timeline: HistoryContent['timeline']): HistoryContent => ({ founderStory: '', timeline, quotes: [] });
+  it('drops an amount and investor the notes do not state; keeps the stated ones', () => {
+    const out = groundHistoryInNotes(hist([
+      { date: '2022 Mar', title: 'Acme raises Series A', detail: '', amountUsd: 20e6, investors: ['Sequoia Capital', 'Zorblax Fund'] },
+      { date: '2025', title: 'Acme closes Series C round', detail: '', amountUsd: 9.9e9 },
+    ]), NOTES);
+    expect(out.timeline[0]).toMatchObject({ amountUsd: 20e6, investors: ['Sequoia Capital'] });
+    expect(out.timeline[1]!.amountUsd).toBeUndefined();
+  });
+  it('removes a sourceUrl that no citation carries', () => {
+    const rows = [{ sourceUrl: 'https://made.up/x' }, { sourceUrl: 'https://real.test/a/' }];
+    const out = keepCitedSourceUrls(rows, [{ url: 'https://real.test/a' }]);
+    expect(out[0]!.sourceUrl).toBeUndefined();
+    expect(out[1]!.sourceUrl).toBe('https://real.test/a/');
   });
 });
