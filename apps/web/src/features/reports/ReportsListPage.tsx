@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { ArrowUpRight } from 'lucide-react';
-import { useReports } from '@/hooks/data';
+import { useMarkets, useReports } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatRelative } from '@/lib/format';
 
@@ -13,12 +13,34 @@ const KIND_LABEL: Record<string, string> = {
 
 export default function ReportsListPage() {
   const reports = useReports();
+  const markets = useMarkets();
+  // The report composer lives on the deck page (Share & export → Create report),
+  // so "Create a report" takes you to your most recent deck.
+  const latest = [...(markets.data ?? [])]
+    .filter((m) => !m.archivedAt)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   return (
     <div className="mx-auto max-w-4xl">
-      <h1 className="font-display text-2xl font-semibold text-content">Reports</h1>
-      <p className="mt-1 text-sm text-muted">
-        Each report is written from the research in your decks, with its sources, and kept here.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-semibold text-content">Reports</h1>
+          <p className="mt-1 text-sm text-muted">
+            Each report is written from the research in your decks, with its sources, and kept here.
+          </p>
+        </div>
+        {markets.isSuccess && (
+          <Link to={latest ? `/markets/${latest.id}/deck` : '/history'} className="btn-primary shrink-0">
+            Create a report
+          </Link>
+        )}
+      </div>
+      {markets.isSuccess && (
+        <p className="mt-2 text-xs text-faint">
+          {latest
+            ? `Opens ${latest.name}, your most recent deck. Choose Share & export, then Create report.`
+            : 'You need a deck first. Open All Decks to pick one, or start a new deck.'}
+        </p>
+      )}
 
       <div className="mt-6">
         <QueryBoundary

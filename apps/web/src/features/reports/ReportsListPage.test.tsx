@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import type { Report } from '@mi/contracts';
+import type { Market, Report } from '@mi/contracts';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
 import ReportsListPage from './ReportsListPage';
 
@@ -34,6 +34,30 @@ describe('the Reports page', () => {
     expect(screen.queryByText(/audit a website/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /run the audit/i })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/competitor/i)).not.toBeInTheDocument();
+  });
+
+  const mkt = (id: string, name: string, createdAt: string) =>
+    ({ id, name, scopeDefinition: { vertical: 'v', geography: null, notes: null }, refreshCadence: 'manual', createdAt }) as unknown as Market;
+
+  it('offers Create a report that opens the most recent deck', async () => {
+    const repository = makeRepo();
+    vi.spyOn(repository, 'listReports').mockResolvedValue([]);
+    vi.spyOn(repository, 'listMarkets').mockResolvedValue([
+      mkt('old', 'Old deck', '2026-01-01T00:00:00Z'),
+      mkt('new', 'New deck', '2026-05-01T00:00:00Z'),
+    ]);
+    renderWithProviders(<ReportsListPage />, { repository });
+    expect(await screen.findByRole('link', { name: 'Create a report' })).toHaveAttribute('href', '/markets/new/deck');
+    expect(screen.getByText(/Opens New deck/)).toBeInTheDocument();
+  });
+
+  it('with no decks, sends Create a report to All Decks with a hint', async () => {
+    const repository = makeRepo();
+    vi.spyOn(repository, 'listReports').mockResolvedValue([]);
+    vi.spyOn(repository, 'listMarkets').mockResolvedValue([]);
+    renderWithProviders(<ReportsListPage />, { repository });
+    expect(await screen.findByRole('link', { name: 'Create a report' })).toHaveAttribute('href', '/history');
+    expect(screen.getByText(/You need a deck first/)).toBeInTheDocument();
   });
 
   it('says plainly when there are no reports yet', async () => {
