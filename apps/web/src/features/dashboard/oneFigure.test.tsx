@@ -86,6 +86,19 @@ describe('one figure, one value, everywhere (Euroa AI: valuation reported in eur
     expect((screen.queryByText(/Unknown, not charted/)?.parentElement ?? document.body).textContent).not.toMatch(/Euroa/);
   });
 
+  it('a converted entry ends the line with "Not ranked", never "Shown as reported, not converted"', async () => {
+    const metric = metricsOf[euro.id]![0]!;
+    const original = metric.methodNote;
+    metric.methodNote = 'Valuation of EUR 10B, converted from euros at the exchange rate';
+    try {
+      renderWithProviders(<MetricsTab companyId={dollar.id} />, { repository: repository(), route: route('valuation') });
+      const note = await screen.findByText(/Not charted, reported in another currency/);
+      expect(note.parentElement).toHaveTextContent('converted from EUR');
+      expect(note.parentElement).toHaveTextContent('Not ranked: figures in, or converted from, other currencies.');
+      expect(note.parentElement).not.toHaveTextContent('not converted to US dollars');
+    } finally { metric.methodNote = original; }
+  });
+
   it('the Metrics tab for the company itself shows the same value and currency', async () => {
     renderWithProviders(<MetricsTab companyId={euro.id} />, { repository: repository(), route: route() });
     const table = await screen.findByRole('table');

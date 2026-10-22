@@ -244,7 +244,7 @@ function PeerComparison({
   const otherCurrency = peers.filter((p) => !knownIds.has(p.companyId)).flatMap((p) => {
     const m = shownKnown(p, ranking.metricType);
     const currency = m ? figureCurrency(m) : null;
-    return m && currency ? [{ id: p.companyId, text: `${shortCompanyName(p.name)} ${figureDisplay(m)}${currency.converted ? ` (converted from ${currency.code})` : ` (${currency.code})`}` }] : [];
+    return m && currency ? [{ id: p.companyId, converted: currency.converted, text: `${shortCompanyName(p.name)} ${figureDisplay(m)}${currency.converted ? ` (converted from ${currency.code})` : ` (${currency.code})`}` }] : [];
   });
   const otherCurrencyIds = new Set(otherCurrency.map((o) => o.id));
   const unknownNames = peers.filter((p) => !knownIds.has(p.companyId) && !otherCurrencyIds.has(p.companyId) && p.companyId !== selfId).map((p) => shortCompanyName(p.name));
@@ -319,7 +319,9 @@ function PeerComparison({
       {peerStatus === 'ready' && otherCurrency.length > 0 && (
         <p className="mt-2 text-[11.5px] leading-snug text-faint">
           <span className="font-medium text-muted">Not charted, reported in another currency: </span>
-          {otherCurrency.map((o) => o.text).join(', ')}. Shown as reported, not converted to US dollars.
+          {otherCurrency.map((o) => o.text).join(', ')}. {otherCurrency.some((o) => o.converted)
+            ? 'Not ranked: figures in, or converted from, other currencies.'
+            : 'Shown as reported, not converted to US dollars.'}
         </p>
       )}
       {peerStatus === 'ready' && unknownNames.length > 0 && (
