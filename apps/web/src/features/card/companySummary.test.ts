@@ -45,6 +45,17 @@ describe('the reader summary says only what the card holds', () => {
     expect(out.sentences.length).toBeLessThanOrEqual(6);
   });
 
+  it('names each source type on its own line when the figures differ, without a verb that has to agree', () => {
+    const cited = (label: string, display: string, credibility: string): Item => ({
+      key: label, label, display, confidence: 'Verified',
+      citations: [{ url: 'https://' + label.toLowerCase() + '.example.org/a', title: label + ' source', credibility }],
+      metric: { capturedAt: '2026-10-22T10:00:00.000Z', value: 1 },
+    } as unknown as Item);
+    const text = buildCompanySummary({ ...base, items: [cited('Valuation', '$1B', 'industry'), cited('Employees', '12', 'reputable_secondary')] }).sentences.join(' ');
+    expect(text).toContain('Valuation: from an industry source.');
+    expect(text).toContain('Employees: from independent reporting.');
+  });
+
   it('gives no value for a figure the face shows as unsourced and says so when nothing is sourced', () => {
     const out = buildCompanySummary({ ...base, items: [missing('Valuation'), missing('Employees')] });
     const text = out.sentences.join(' ');

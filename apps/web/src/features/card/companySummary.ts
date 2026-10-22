@@ -104,7 +104,7 @@ export function buildCompanySummary(input: {
       const phrase = STATUS_PHRASE[status] ?? 'linked to a source';
       sentences.push(groups.size === 1
         ? `${group.length === 1 ? 'It is' : 'All of them are'} ${phrase}.`
-        : `${join(group.map((item) => item.label))} ${group.length === 1 ? 'is' : 'are'} ${phrase}.`);
+        : `${join(group.map((item) => item.label))}: ${phrase}.`);
     }
     const dates = figureDates(known);
     const recorded = known.map((item) => item.metric?.capturedAt).find((value) => value && Number.isFinite(new Date(value).getTime()));
