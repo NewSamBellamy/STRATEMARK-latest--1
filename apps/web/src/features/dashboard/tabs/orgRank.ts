@@ -1,7 +1,7 @@
 /**
- * Who comes first on a team page, and which column of the board a person
- * belongs in. Pure functions only (no React) so the leadership strip, the
- * Overview leadership card and the board all order people the same way.
+ * Who comes first on a team page, and which section of it a person belongs
+ * in. Pure functions only (no React) so the team page, the Overview
+ * leadership card and the profile order people the same way.
  *
  * Nothing here invents a fact: ranks are read from the person's own reported
  * title (and `isFounder` when a source said so); a title that matches nothing
@@ -18,19 +18,7 @@ export const GROUP_LABEL: Record<OrgGroup, string> = {
   ai: 'AI & research',
   product: 'Product',
   design: 'Design',
-  other: 'Board & other',
-};
-
-/**
- * One hue per function, at a shade that carries white label text at AA
- * contrast. Same hues as the filter dots (indigo, cyan, emerald, pink, slate).
- */
-export const GROUP_COLOR: Record<OrgGroup, string> = {
-  exec: '#4f46e5',
-  ai: '#0e7490',
-  product: '#047857',
-  design: '#be185d',
-  other: '#475569',
+  other: 'Other',
 };
 
 const GROUP_ORDER: OrgGroup[] = ['exec', 'ai', 'product', 'design', 'other'];
@@ -46,6 +34,17 @@ const VP = /\bvp\b|\bvice[ -]president\b/i;
 const PRESIDENT = /(?<!vice[ -])\bpresident\b/i;
 const CHIEF = /\bchief\b|\bc[a-z]o\b|\bgeneral counsel\b/i;
 const HEAD = /\bhead of\b|\bdirector\b|\blead\b/i;
+/**
+ * A seat on the board, read from the reported title: "Independent Board Member",
+ * "Chairman of the Board", "Non-Executive Director". A staff "Director of X" is not one.
+ */
+const BOARD_SEAT =
+  /\bboard\b|\bchair(?:man|woman|person)?\b|\b(?:non-?executive|independent|outside)\s+director\b|^director$/i;
+
+/** True when the reported title is a board seat. Founders and chief executives are sorted before this is asked. */
+export function isBoardSeat(person: Pick<OrgNode, 'role'>): boolean {
+  return BOARD_SEAT.test((person.role ?? '').trim());
+}
 
 /**
  * Seniority from the reported role: 0 founder, 1 CEO, 2 other chief or
@@ -83,7 +82,7 @@ export function sortByRank(nodes: readonly OrgNode[]): OrgNode[] {
   return [...nodes].sort(compareOrg);
 }
 
-export type ColumnKey = 'founders' | 'exec' | 'ai' | 'product_design' | 'other';
+export type ColumnKey = 'founders' | 'exec' | 'ai' | 'product_design' | 'other' | 'board';
 
 export interface OrgColumn {
   key: ColumnKey;
@@ -91,27 +90,22 @@ export interface OrgColumn {
   people: OrgNode[];
 }
 
+/** Section titles on the team page, in plain words. */
 export const COLUMN_LABEL: Record<ColumnKey, string> = {
-  founders: 'Founders & CEO',
-  exec: 'Executive',
+  founders: 'Leadership',
+  exec: 'Executives',
   ai: 'AI & research',
   product_design: 'Product & design',
-  other: 'Other',
+  other: 'Other roles',
+  board: 'Board',
 };
 
-/** Column header dots: the function hue, with founders in their own amber. */
-export const COLUMN_COLOR: Record<ColumnKey, string> = {
-  founders: '#b45309',
-  exec: GROUP_COLOR.exec,
-  ai: GROUP_COLOR.ai,
-  product_design: GROUP_COLOR.product,
-  other: GROUP_COLOR.other,
-};
-
-const COLUMN_ORDER: ColumnKey[] = ['founders', 'exec', 'ai', 'product_design', 'other'];
+/** Leadership first, the board last: the order a reader meets a company's people. */
+export const COLUMN_ORDER: ColumnKey[] = ['founders', 'exec', 'ai', 'product_design', 'other', 'board'];
 
 export function columnOf(person: OrgNode): ColumnKey {
   if (rankRole(person) <= 1) return 'founders';
+  if (isBoardSeat(person)) return 'board';
   switch (person.group) {
     case 'exec':
       return 'exec';

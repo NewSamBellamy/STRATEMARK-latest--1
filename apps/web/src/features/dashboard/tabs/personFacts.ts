@@ -92,6 +92,55 @@ export function personSources(person: OrgNode): PersonSource[] {
   return sources;
 }
 
+/**
+ * Search-only research writes where a line came from in front of it:
+ * `Google Search reports (original page not retrieved): "…"`. The profile keeps
+ * that wording (and says there is no source link); a card shows only the line.
+ */
+const PROVENANCE_PREFIX = /^[^:"“]{1,80}\(original page not retrieved\)\s*:\s*/i;
+
+/** The bio as a card shows it: the reported line without its provenance prefix or wrapping quotes. Null when empty. */
+export function cardBio(bio: string | null | undefined): string | null {
+  const text = reported(bio);
+  if (!text) return null;
+  const line = text.replace(PROVENANCE_PREFIX, '').trim().replace(/^["“](.*)["”]\.?$/s, '$1').trim();
+  return line || null;
+}
+
+export interface GlanceFact {
+  key: 'reportsTo' | 'tenure' | 'started' | 'prior' | 'project' | 'move';
+  label: string;
+  value: string;
+  /** The numbered source behind it (see personSources); none for the reporting line. */
+  footnote: number | null;
+}
+
+/**
+ * What a profile can say about a person beyond name and role, in reading order.
+ * Only fields that hold something: an empty list means the record is name and role only.
+ */
+export function glanceFacts(person: OrgNode, reportsTo: string | null = null): GlanceFact[] {
+  const facts: GlanceFact[] = [];
+  if (reportsTo?.trim()) facts.push({ key: 'reportsTo', label: 'Reports to', value: reportsTo.trim(), footnote: null });
+  const sourced: Array<[GlanceFact['key'], string, string | null | undefined]> = [
+    ['tenure', 'Tenure', person.tenure],
+    ['started', 'Started', person.startedAt],
+    ['prior', 'Previously', person.priorCompany],
+    ['project', 'Known for', person.notableProject],
+  ];
+  for (const [key, label, raw] of sourced) {
+    const value = reported(raw);
+    if (value) facts.push({ key, label, value, footnote: 1 });
+  }
+  const note = moveNote(person);
+  if (note) {
+    const moveUrl = person.move ? safeHttpUrl(person.move.sourceUrl) : undefined;
+    const separate = moveUrl && moveUrl !== (safeHttpUrl(person.sourceUrl) ?? null);
+    facts.push({ key: 'move', label: 'Recent move', value: note, footnote: separate ? 2 : 1 });
+  }
+  return facts;
+}
+
 /** The move as the back of a card words it, whether or not it is recent enough for a ribbon. */
 export function moveNote(person: Pick<OrgNode, 'move'>): string | null {
   const move = person.move;

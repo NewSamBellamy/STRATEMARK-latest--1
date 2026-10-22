@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OrgNode } from '@mi/contracts';
-import { compareOrg, groupColumns, rankRole, recentMove, sortByRank, startingFive } from './orgRank';
+import { compareOrg, groupColumns, isBoardSeat, rankRole, recentMove, sortByRank, startingFive } from './orgRank';
 
 const person = (name: string, role: string, over: Partial<OrgNode> = {}): OrgNode => ({
   id: name, name, role, group: 'exec', parentId: null, bio: '', ...over,
@@ -78,6 +78,34 @@ describe('groupColumns', () => {
   it('leaves out empty columns', () => {
     expect(groupColumns([person('Ann', 'CEO')]).map((c) => c.key)).toEqual(['founders']);
     expect(groupColumns([])).toEqual([]);
+  });
+
+  it('puts board seats last, in their own Board section, but keeps a founder who chairs in leadership', () => {
+    const cols = groupColumns([
+      person('Chair', 'Chairman of the Board'),
+      person('Ind', 'Independent Director', { group: 'other' }),
+      person('Ann', 'Co-founder & CEO, Board member'),
+      person('Des', 'Director of Design', { group: 'design' }),
+    ]);
+    expect(cols.map((c) => c.key)).toEqual(['founders', 'product_design', 'board']);
+    expect(cols.at(-1)!.label).toBe('Board');
+    expect(cols.at(-1)!.people.map((p) => p.name).sort()).toEqual(['Chair', 'Ind']);
+  });
+});
+
+describe('isBoardSeat', () => {
+  it.each([
+    ['Chairman of the Board', true],
+    ['Board member', true],
+    ['Independent Director', true],
+    ['Non-executive Director', true],
+    ['Director', true],
+    ['Chairperson', true],
+    ['Director of Research', false],
+    ['Engineering Director', false],
+    ['Chief Executive Officer', false],
+  ])('%s -> %s', (role, expected) => {
+    expect(isBoardSeat({ role })).toBe(expected);
   });
 });
 
