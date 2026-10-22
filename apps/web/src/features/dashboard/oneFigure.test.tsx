@@ -74,8 +74,8 @@ describe('one figure, one value, everywhere (Euroa AI: valuation reported in eur
     expect(euroRow).toHaveTextContent('€11.7B');
     expect(within(euroRow).getByText('EUR')).toHaveAttribute('title', expect.stringContaining('not converted to US dollars'));
     expect(euroRow).not.toHaveTextContent('$11.7B');
-    // Valuation is the first value column: the euro row is not a dash there.
-    expect(euroRow.querySelectorAll('td')[0]).not.toHaveTextContent('—');
+    // The first cell is the place (blank for an unranked figure); valuation is the next column, and the euro row is not a dash there.
+    expect(euroRow.querySelectorAll('td')[1]).not.toHaveTextContent('—');
   });
 
   it('the Metrics tab lists it as known, in euros, never under "Unknown, not charted"', async () => {
@@ -83,7 +83,10 @@ describe('one figure, one value, everywhere (Euroa AI: valuation reported in eur
     const note = await screen.findByText(/Not charted, reported in another currency/);
     expect(note.parentElement).toHaveTextContent('Euroa AI €11.7B (EUR)');
     expect(note.parentElement).toHaveTextContent('not converted to US dollars');
-    expect((screen.queryByText(/Unknown, not charted/)?.parentElement ?? document.body).textContent).not.toMatch(/Euroa/);
+    // The unsourced-figure note ("Not charted, no sourced figure") lists only companies with nothing sourced, never the euro one.
+    const unknown = await screen.findByText(/Not charted, no sourced figure/);
+    expect(unknown.parentElement).toHaveTextContent('Barely');
+    expect(unknown.parentElement).not.toHaveTextContent(/Euroa/);
   });
 
   it('a converted entry ends the line with "Not ranked", never "Shown as reported, not converted"', async () => {

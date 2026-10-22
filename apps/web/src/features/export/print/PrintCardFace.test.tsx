@@ -5,6 +5,7 @@ import type { CardWithCompany } from '@mi/contracts';
 import sample from '@/sample/frontier-snapshot.json';
 import { renderWithProviders } from '@/test/test-utils';
 import { buildCardView } from '@/features/card/card-view';
+import { faceFooter } from '@/features/card/faceFooter';
 import { CollectibleCard } from '@/features/card/CollectibleCard';
 import { PrintCardFace } from './PrintCardFace';
 
@@ -30,7 +31,11 @@ describe('PrintCardFace', () => {
     const shown = Array.from(face.querySelectorAll('.collectible__metrics > div')).map((d) => text(d));
     expect(shown).toEqual(view.faceMetrics.map((m) => `${m.display}${m.label}`.replace(/\s+/g, ' ').trim()));
     expect(shown.length).toBeGreaterThan(0);
-    expect(text(face.querySelector('.collectible__footer')!)).toContain(view.position);
+    // The footer is the new face's own: founding year (only when sourced) and last update, no sourced-count line.
+    const footer = faceFooter(data);
+    const footerText = text(face.querySelector('.collectible__footer')!);
+    for (const part of [footer.lead, footer.updated]) if (part) expect(footerText).toContain(part);
+    expect(footerText).not.toMatch(/figures sourced|sources tracked/);
     // Identical to the app's own card, character for character.
     const app = renderWithProviders(<CollectibleCard data={data} />).container;
     expect(text(face)).toBe(text(app.querySelector('[data-testid="collectible-card-front"]')!));
