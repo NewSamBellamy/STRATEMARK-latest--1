@@ -223,6 +223,15 @@ describe('Share, where the Worker can store a link', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('says so when the optional short link cannot be made, instead of silently doing nothing', async () => {
+    fetchMock.mockImplementation(async () => { throw new TypeError('Failed to fetch'); });
+    const { repository, ui } = await setup();
+    const { user } = renderWithProviders(ui(), { repository });
+    await user.click(await screen.findByRole('button', { name: /Use a private link instead/ }));
+    await user.click(await screen.findByRole('button', { name: /Create short link/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/short link could not be made.*copy the full link/i);
+  });
+
   it('is the private link, as before, where no Worker is set up', async () => {
     hosted.on = false;
     const { repository, ui } = await setup();

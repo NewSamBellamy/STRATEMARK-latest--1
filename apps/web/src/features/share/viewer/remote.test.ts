@@ -76,6 +76,13 @@ describe('loading a hosted share', () => {
     expect(offline).toMatchObject({ ok: false, reason: 'unreachable' });
   });
 
+  it('says "too many requests" plainly, not "check your connection", when the Worker is rate limiting this visitor', async () => {
+    const busy = await loadRemoteShare(ID, 'https://a.example', (async () => json(429, { error: 'Too many requests. Try again shortly.' })) as unknown as typeof fetch);
+    expect(busy).toMatchObject({ ok: false, reason: 'busy' });
+    expect(busy.ok === false && busy.message).toMatch(/minute/);
+    expect(busy.ok === false && busy.message).not.toMatch(/connection/);
+  });
+
   it('refuses research that is not a share snapshot, whatever it looks like', async () => {
     const wrap = (data: unknown) => loadRemoteShare(ID, 'https://a.example', (async () => json(200, { data })) as unknown as typeof fetch);
     expect(await wrap(undefined)).toMatchObject({ ok: false, reason: 'unreadable' });
