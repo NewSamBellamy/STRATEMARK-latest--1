@@ -511,16 +511,18 @@ export default function DashboardPage() {
           <>
             {/* Compact header: name and its one-line description, the facts in one quiet row,
                 and the actions (ask, share, chats) on the right. */}
-            <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-3">
+            <header className="mb-4 flex flex-wrap items-start gap-x-4 gap-y-3 lg:grid lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-y-0">
               <Logo
                 name={c.name}
                 website={c.websiteUrl}
                 logoUrl={c.logoUrl}
-                className="h-12 w-12 border border-border"
+                className="h-12 w-12 border border-border lg:row-span-2"
               />
-              {/* Phones: this wrapper dissolves so the name sits beside the logo and the details run full width below. */}
-              <div className="contents lg:block lg:min-w-[14rem] lg:flex-1">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 self-center lg:self-auto">
+              {/* This wrapper dissolves: on phones the name sits beside the logo and the details run full
+                  width below; on wide screens the name shares a row with the actions and the description
+                  and facts run under both, so they never wrap into a narrow column. */}
+              <div className="contents">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 self-center lg:col-start-2 lg:row-start-1">
                 <h1 className="font-display text-[22px] font-semibold leading-tight tracking-tight text-content">{c.name}</h1>
                 {ownershipLabel(c.ownership) && (
                   <SafeLink
@@ -535,7 +537,7 @@ export default function DashboardPage() {
                   </SafeLink>
                 )}
                 </div>
-                <div className="order-1 basis-full lg:order-none">
+                <div className="order-1 basis-full lg:order-none lg:col-span-2 lg:col-start-2 lg:row-start-2">
                 {/* One line; the full description is the Summary's first sentence below. */}
                 {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && (
                   <p className="mt-0.5 line-clamp-2 max-w-3xl text-[13px] leading-snug text-muted lg:line-clamp-1" title={headerSubtitle}>{headerSubtitle}</p>
@@ -548,7 +550,7 @@ export default function DashboardPage() {
                 />
                 </div>
               </div>
-              <div className="order-2 flex w-full flex-wrap items-center gap-2 lg:order-none lg:w-auto lg:shrink-0">
+              <div className="order-2 flex w-full flex-wrap items-center gap-2 lg:order-none lg:col-start-3 lg:row-start-1 lg:w-auto lg:justify-end">
               {!readOnly && <ResearchComposer companyId={c.id} companyName={c.name} />}
               {!readOnly && (
                 <ExportMenu
