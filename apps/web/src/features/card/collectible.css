@@ -485,6 +485,72 @@
   transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
   transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+/* Turning the card over: drag sideways to spin it (CardStage sets --spin while
+   held), or use the Flip button; it rests on --turn, a multiple of 180deg. */
+.card-stage__perspective {
+  cursor: grab;
+  touch-action: pan-y;
+}
+.card-stage__perspective--dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.card-stage__spin {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateY(var(--spin, var(--turn, 0deg)));
+  transition: transform 560ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.card-stage__perspective--dragging .card-stage__spin {
+  transition: none;
+}
+.card-stage__face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.card-stage__face--back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+}
+.card-stage__flip {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid #f0e1b647;
+  border-radius: 999px;
+  color: #f0e1b6;
+  background: #0b1d19cc;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.card-stage__flip:hover {
+  border-color: #f0e1b699;
+  background: #17392fe6;
+}
+.card-stage__flip:focus-visible {
+  outline: 2px solid #f0e1b6;
+  outline-offset: 2px;
+}
+.collectible--back {
+  padding: 0;
+  border-color: #787d58;
+  background: #0b1d19;
+}
+.collectible--back::before {
+  border-color: #f0e1b62e;
+}
+.collectible__back-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 .card-stage .collectible {
   box-shadow:
     0 3px 6px #00000030,
@@ -821,8 +887,12 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .card-sleeve__open,
-  .card-stage__tilt {
+  .card-stage__tilt,
+  .card-stage__spin {
     transition: none;
+  }
+  .card-stage__perspective {
+    cursor: auto;
   }
   .card-sleeve__open:hover {
     transform: none;
