@@ -37,6 +37,16 @@ describe('overviewParagraph', () => {
     expect(out.products).toEqual([]);
   });
 
+  it('names a short product that only appears inside another word, and a non-Latin product name', () => {
+    const out = overviewParagraph({
+      name: 'Acme',
+      description: 'Acme builds a pipeline of industrial widgets for factories.',
+      takeaways: [],
+      productNames: ['Pi', '日本語'],
+    });
+    expect(out.products).toEqual(['Pi', '日本語']);
+  });
+
   it('ends a sentence cut where a list began at the colon, and caps the length', () => {
     const out = overviewParagraph({
       name: 'Acme',

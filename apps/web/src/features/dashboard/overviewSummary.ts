@@ -65,9 +65,10 @@ export function overviewParagraph(input: {
   }
 
   // Products the paragraph has not already named, by their recorded names only.
-  const said = norm(sentences.join(' '));
+  // Whole words only ("Pi" is not said by "pipeline"); a name with no Latin letters cannot be matched, so it is listed.
+  const said = ` ${norm(sentences.join(' '))} `;
   const named = [...new Set(input.productNames.map((n) => n.trim()).filter(Boolean))];
-  const fresh = named.filter((n) => !said.includes(norm(n))).slice(0, 4);
+  const fresh = named.filter((n) => { const k = norm(n); return !k || !said.includes(` ${k} `); }).slice(0, 4);
   // The product line may follow a full paragraph: it is a list of names, not another claim to read.
   if (fresh.length > 0) sentences.push(`Products on record include ${join(fresh)}.`);
   return { sentences, links, products: fresh };
