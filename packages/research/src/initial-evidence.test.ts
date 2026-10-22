@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { hydrateCompanyCard as publishCompanyCard, verifyCompanyCardOriginals, type HydrateCompanyCardInput } from './company-agent';
 import type { LlmClient, CompanyCandidate, MarketPlan } from './types';
 import type { OriginalSourceServices } from './original-source';
-import { discoverDeckStubs, runDeckResearch } from './pipeline';
+import { buildStubs, discoverDeckStubs, runDeckResearch } from './pipeline';
 import { GeminiRepository, migrateSnapshot, type ResearchStore } from './repository';
 
 vi.mock('./logos', () => ({ faviconUrl: () => null, resolveLogo: async () => ({ url: null }) }));
@@ -239,6 +239,15 @@ describe('supplementary company original-evidence publication', () => {
     });
     expect(result.cards).toHaveLength(1);
     expect(result.cards[0]!.metrics).toEqual([]);
+  });
+  it('never stores a headline number from discovery as verified: it has no citation yet',  () => {
+    const deck = { id: 'dck_test', marketId: 'mkt_test', createdAt: new Date().toISOString(), lastRefreshedAt: null };
+    const [stub] = buildStubs([{ ...candidate, reportedArr: 9_000_000_000, reportedHeadcount: 45, reportedValuation: 80_000_000_000 }], deck);
+    expect(stub!.metrics.length).toBeGreaterThan(0);
+    for (const metric of stub!.metrics) {
+      expect(metric.citations).toEqual([]);
+      expect(metric.confidence).not.toBe('verified');
+    }
   });
   it('does not block resumed hydration on originals or extra metric recovery', async () => {
     const { client, originals } = fixture(false);
