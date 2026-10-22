@@ -122,3 +122,32 @@ export function monogram(name: string): string {
   const second = words.length > 1 ? [...words[1]!][0]!.toUpperCase() : '';
   return `${first}${second}`;
 }
+
+/**
+ * The short title printed on a deck's cover. Long market names ("Trading Card
+ * Games (TCG) / Collectible Card Games (CCG) Market") overrun a card-sized
+ * cover, so the cover drops bracketed abbreviations, a trailing "Market", and
+ * any alternative names after a slash. The full name stays in the text below.
+ */
+export function deckDisplayTitle(name: string): string {
+  const full = name.replace(/\s+/g, ' ').trim();
+  let short = full
+    .replace(/\s*[([][^)\]]*[)\]]/g, '')
+    .split(/\s+\/\s+/)[0]!
+    .replace(/\s+markets?$/i, '')
+    .replace(/^United States\b/, 'US')
+    .replace(/\s+([,;:])/g, '$1')
+    .replace(/[\s,;:\-–—]+$/, '')
+    .trim();
+  if (!short) short = full;
+  return short;
+}
+
+/** Cover title size in px: smaller for longer titles, so three lines always fit. */
+export function deckTitleSize(title: string): number {
+  const n = title.length;
+  if (n <= 20) return 17;
+  if (n <= 34) return 15;
+  if (n <= 48) return 13.5;
+  return 12.5;
+}
