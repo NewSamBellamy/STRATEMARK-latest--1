@@ -52,9 +52,11 @@ export default function BetaPage() {
           <p>
             To cover the AI cost, research requests pass through our server on their way to Google&apos;s Gemini API, and
             company websites are fetched through it too. We pass them straight through and don&apos;t store or log what
-            they contain. Apart from a share link you create (below), the only thing we keep is a running total of
-            AI spend: today&apos;s (counted per IP address, and reset every day) and, to enforce the covered amount, a lifetime
-            total kept against a scrambled form of your address rather than the address itself.
+            they contain. What we keep is a running total of AI spend (today&apos;s, counted per IP address and reset every
+            day, and, to enforce the covered amount, a lifetime total kept against a scrambled form of your address
+            rather than the address itself), short-lived per-visitor counters used only for fair-use limits on page
+            reading (deleted after about two days of no use), and the read-only copy of anything you choose to share
+            (below).
           </p>
           <p>
             A share link is the one exception, and only when you press Create link: so the link works, we keep a
