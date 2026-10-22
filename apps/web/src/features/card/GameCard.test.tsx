@@ -31,9 +31,8 @@ describe('GameCard', () => {
     expect(screen.getAllByText('GraceWear Global').length).toBeGreaterThan(0);
     expect(screen.getByText(cwc.company!.oneLiner)).toBeInTheDocument();
     expect(screen.getByText('Revenue / ARR')).toBeInTheDocument();
-    expect(screen.getByText(/\d\/4 figures sourced/)).toBeInTheDocument();
+    expect(screen.getByText(/^Updated /)).toBeInTheDocument();
     expect(screen.queryByText(/Very Strong|Very Weak/)).not.toBeInTheDocument();
-    expect(screen.getByText(/research needed/i)).toBeInTheDocument();
     // HQ shown.
     expect(screen.getByText(/Los Angeles/)).toBeInTheDocument();
   });
@@ -43,10 +42,10 @@ describe('GameCard', () => {
     // own digits. Growth indicators are banned until real history exists.
     renderWithProviders(<GameCard data={hydrate(companyCard.id)} />);
     expect(screen.queryByText(/%\s*YoY/i)).not.toBeInTheDocument();
-    // Dense provenance labels stay off the collectible face; its footer carries
-    // the source count and the first-look inspector owns source receipts.
+    // Dense provenance labels stay off the collectible face; its footer says when
+    // the card last changed and the first-look inspector owns source receipts.
     expect(screen.queryByText(/Source linked|Not confirmed|Human checked/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/sourced figures|research needed/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Updated /)).toBeInTheDocument();
   });
 
   it('fires onOpen when clicked', async () => {

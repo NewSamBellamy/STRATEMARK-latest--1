@@ -52,6 +52,11 @@ describe('CardReader', () => {
     expect(screen.queryByRole('button', { name: 'Next lane' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next card' })).toBeEnabled();
   });
+  it('keeps the figure coverage and source count in the reader, now that the face shows the update date', () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
+    expect(screen.getByTestId('card-reader-provenance')).toHaveTextContent(/\d\/4 figures sourced · (\d+ sources? tracked|Research needed)/);
+  });
   it('shows one concise overview, the four core figures, and a clear dashboard action', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);

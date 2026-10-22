@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { ownershipLabel, type CardWithCompany } from '@mi/contracts';
 import { clampForChrome, deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
+import { faceFooter } from './faceFooter';
 import { Logo } from './Logo';
 
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
@@ -57,12 +58,9 @@ export function CollectibleCard({
     '--card-c2': logoPalette[1] ? clampForChrome(logoPalette[1]) : `color-mix(in srgb, ${clampForChrome(logoPalette[0]!)} 70%, #0b1512)`,
     ...(logoPalette[2] ? { '--card-c3': clampForChrome(logoPalette[2]) } : {}),
   } : null;
-  const stage = view.position;
+  const footer = faceFooter(data);
   const complete = view.faceMetrics.length > 0 &&
     view.faceMetrics.every((m) => (m.metric?.value != null || m.metric?.reportedBand != null) && (m.citations.length > 0 || m.metric?.confidence === 'user_verified'));
-  const provenance = view.sourceCount > 0
-    ? `${view.sourceCount} ${view.sourceCount === 1 ? 'source' : 'sources'} tracked`
-      : 'Research needed';
 
   return (
     <div
@@ -125,8 +123,8 @@ export function CollectibleCard({
           </div>
         ) : null}
         <div className="collectible__footer">
-          <span>{stage}</span>
-          <span>{provenance}</span>
+          <span>{footer.lead}</span>
+          <span>{footer.updated}</span>
         </div>
       </div>
       <div className="collectible__foil" aria-hidden="true" />
