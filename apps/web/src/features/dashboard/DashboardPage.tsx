@@ -506,7 +506,7 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <QueryBoundary query={company}>
+      <QueryBoundary query={company} notFoundIsPage>
         {(c) => (
           <>
             {/* Compact header: name and its one-line description, the facts in one quiet row,

@@ -154,7 +154,7 @@ export default function ReportViewerPage() {
         Reports
       </Link>
 
-      <QueryBoundary query={report}>
+      <QueryBoundary query={report} notFoundIsPage>
         {(r) => {
           if (r.kind === 'site_audit' && r.audit) return <SiteAuditView report={r} audit={r.audit} />;
           if (r.kind === 'company' && r.sections && r.sections.length > 0) return <TopicReportPage report={r} />;

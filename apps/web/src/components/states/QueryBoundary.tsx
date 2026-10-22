@@ -6,9 +6,10 @@ import { Link } from 'react-router-dom';
 import { EmptyState } from './EmptyState';
 
 /** A missing record is "not found" with a way back, never a vague empty page. */
-function NotFound() {
+function NotFound({ asPageHeading }: { asPageHeading: boolean }) {
   return (
     <EmptyState
+      asPageHeading={asPageHeading}
       title="Not found"
       description="This may have been deleted, or the link is out of date."
       action={<Link to="/history" className="btn-primary">Go to your decks</Link>}
@@ -32,6 +33,7 @@ export function QueryBoundary<T>({
   isEmpty,
   empty,
   errorTitle,
+  notFoundIsPage = false,
 }: {
   query: UseQueryResult<T>;
   children: (data: NonNullable<T>) => ReactNode;
@@ -39,6 +41,8 @@ export function QueryBoundary<T>({
   isEmpty?: (data: NonNullable<T>) => boolean;
   empty?: ReactNode | ((data: NonNullable<T>) => ReactNode);
   errorTitle?: string;
+  /** Set where the boundary wraps a whole page with no heading of its own, so "Not found" is the h1. */
+  notFoundIsPage?: boolean;
 }) {
   if (query.isPending) return <>{loading ?? <FullPageLoader />}</>;
   if (query.isError) {
@@ -51,7 +55,7 @@ export function QueryBoundary<T>({
     );
   }
   const data = query.data;
-  if (data == null) return <>{empty ?? <NotFound />}</>;
+  if (data == null) return <>{empty ?? <NotFound asPageHeading={notFoundIsPage} />}</>;
   if (isEmpty?.(data as NonNullable<T>)) {
     if (typeof empty === 'function') return <>{empty(data as NonNullable<T>)}</>;
     return <>{empty ?? <EmptyState title="Nothing here yet" />}</>;
