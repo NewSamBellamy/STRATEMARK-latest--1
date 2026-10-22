@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { formatDate } from '@/lib/format';
 import { ExternalLink } from 'lucide-react';
 import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
-import { useCompany, useDashboardTab } from '@/hooks/data';
+import { useCompany, useDashboardTab, useRerunDashboardTab } from '@/hooks/data';
+import { StoryImage } from '@/components/media/StoryMedia';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { InsightReader } from '@/components/reader/InsightReader';
@@ -214,6 +215,35 @@ function ProductTable({ products, onOpen, showStatus = true }: { products: Produ
   );
 }
 
+/** The tab at a glance: how much is established, counted from the retained research only. */
+function LineupSummary({ products, roadmap, relationships, statedOn }: {
+  products: readonly Product[]; roadmap: readonly RoadmapItem[]; relationships: readonly BusinessRelationship[]; statedOn: string | null;
+}) {
+  if (products.length + roadmap.length + relationships.length === 0) return null;
+  const live = products.filter((p) => p.status === 'live').length;
+  const beta = products.filter((p) => p.status === 'beta').length;
+  const horizon = (key: RoadmapItem['horizon']) => roadmap.filter((r) => r.horizon === key).length;
+  const stats: Array<{ label: string; value: number; note: string | null }> = [
+    { label: 'Products', value: products.length, note: [live > 0 && `${live} live`, beta > 0 && `${beta} beta`].filter(Boolean).join(' · ') || null },
+    { label: 'Roadmap items', value: roadmap.length, note: roadmap.length ? `${horizon('now')} now · ${horizon('next')} next · ${horizon('later')} later` : null },
+    { label: 'Named partners', value: relationships.length, note: relationships.length ? 'customers, suppliers, partners' : null },
+  ];
+  return (
+    <section aria-label="Lineup at a glance">
+      <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
+        {stats.map((stat) => (
+          <div key={stat.label} className="bg-surface px-4 py-3">
+            <dt className="text-[11px] font-medium text-muted">{stat.label}</dt>
+            <dd className="mt-1 text-2xl font-semibold tabular-nums text-content">{stat.value}</dd>
+            {stat.note && <p className="mt-0.5 text-[11px] text-faint">{stat.note}</p>}
+          </div>
+        ))}
+      </dl>
+      {statedOn && <p className="mt-1.5 text-[11px] text-faint">Researched {statedOn}. Counts include only what a source states.</p>}
+    </section>
+  );
+}
+
 export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'products_roadmap');
   const companyRecord = useCompany(companyId).data;
@@ -223,6 +253,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const [status, setStatus] = useState<ProductStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'cards' | 'table' | null>(null);
+  const rerun = useRerunDashboardTab(companyId, 'products_roadmap');
   return (
     <QueryBoundary query={query} loading={<HydratingPanel label="Products & Roadmap" />}>
       {(result) => {
@@ -248,6 +279,8 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
         );
         return (
           <div className="space-y-8 cascade">
+            <LineupSummary products={c.products} roadmap={c.roadmap} relationships={relationships} statedOn={statedOn} />
+
             <section aria-label="Product lineup">
               <SectionHeader
                 title="Product lineup"
@@ -269,7 +302,20 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
               />
               {c.products.length === 0 ? (
                 <>
-                  <EmptyNote compact title="No product lineup confirmed yet">
+                  <EmptyNote
+                    compact
+                    title="No product lineup confirmed yet"
+                    action={(
+                      <button
+                        type="button"
+                        disabled={rerun.isPending}
+                        onClick={() => rerun.mutate()}
+                        className="rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-content hover:bg-surface-2 disabled:opacity-60"
+                      >
+                        {rerun.isPending ? 'Researching products…' : 'Research products and roadmap now'}
+                      </button>
+                    )}
+                  >
                     Named products with a lifecycle status (live, beta, sunset) appear once research
                     finds an official page or filing that describes them.
                   </EmptyNote>
@@ -326,6 +372,15 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                             onClick={() => setOpenProduct(p)}
                             title="Open this product — source disclosure and research"
                           >
+                            {hasUrl && (
+                              /* The picture the product's own official page publishes for link previews; hidden when it has none. */
+                              <StoryImage
+                                pageUrl={p.url}
+                                subject={{ name, website: companyRecord?.websiteUrl ?? null }}
+                                className="aspect-[16/9] border-b border-border"
+                                credit
+                              />
+                            )}
                             <div className="flex flex-1 flex-col p-4">
                               <div className="flex items-start justify-between gap-2">
                                 {/* The card opens on a click anywhere; the name is the real button for keyboards and screen readers. */}

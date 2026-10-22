@@ -3,15 +3,15 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
 import { ProductsRoadmapTab, isPastDue, targetEnd, uniformProductStatus } from './ProductsRoadmapTab';
 
-const state = vi.hoisted(() => ({ products: [] as Product[], roadmap: [] as RoadmapItem[], refreshedAt: null as string | null, relationships: undefined as BusinessRelationship[] | undefined, cached: {} as Record<string, unknown> }));
-vi.mock('@/hooks/data', () => ({ useCompany: () => ({ data: { name: 'Acme' } }), useDashboardTab: () => ({
+const state = vi.hoisted(() => ({ products: [] as Product[], roadmap: [] as RoadmapItem[], refreshedAt: null as string | null, relationships: undefined as BusinessRelationship[] | undefined, cached: {} as Record<string, unknown>, rerun: undefined as unknown as () => void }));
+vi.mock('@/hooks/data', () => ({ useCompany: () => ({ data: { name: 'Acme' } }), useRerunDashboardTab: () => ({ mutate: state.rerun, isPending: false }), useDashboardTab: () => ({
   isPending: false, isError: false, data: { lastRefreshedAt: state.refreshedAt, content: { products: state.products, roadmap: state.roadmap, relationships: state.relationships } },
 }) }));
 vi.mock('../useCachedTab', () => ({ useCachedDashboardTab: (_id: string, tab: string) => ({ data: state.cached[tab] }) }));
 vi.mock('@/components/media/AiCover', () => ({ AiCover: () => null }));
 vi.mock('./ProductPage', () => ({ ProductPage: ({ product }: { product: Product }) => <a href={product.url ?? undefined}>Official page</a> }));
 vi.mock('@/features/deepdive/DeepDive', () => ({ DigDeeper: () => null, DigDeeperMenu: () => null }));
-beforeEach(() => { state.products = []; state.roadmap = []; state.refreshedAt = null; state.relationships = undefined; state.cached = {}; });
+beforeEach(() => { state.rerun = vi.fn(); state.products = []; state.roadmap = []; state.refreshedAt = null; state.relationships = undefined; state.cached = {}; });
 
 describe('product evidence wording in the existing view', () => {
   it('does not promise a revenue ranking or silently treat empty research as complete', () => {
@@ -74,12 +74,37 @@ describe('product evidence wording in the existing view', () => {
     fireEvent.click(screen.getByRole('button', { name: /Atlas/ }));
     expect(await screen.findByRole('link', { name: 'Official page' })).toHaveAttribute('href', 'https://acme.com/blog/atlas');
   });
-  it('product cards carry no illustration hero and no SOURCE label', () => {
+  it('product cards carry no generated illustration and no SOURCE label', () => {
     state.products = [{ name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null }];
     const { container } = render(<ProductsRoadmapTab companyId="cmp" />);
     expect(container.querySelector('img')).toBeNull();
     expect(screen.queryByText(/^source$/i)).not.toBeInTheDocument();
   });
+  it('summarises what is established at the top, counted only from retained research', () => {
+    state.products = [
+      { name: 'Atlas', status: 'live', description: 'd', revenueNote: '', url: null },
+      { name: 'Beacon', status: 'beta', description: 'd', revenueNote: '', url: null },
+    ];
+    state.roadmap = [{ title: 'Atlas 2', horizon: 'next', detail: 'x', date: null }];
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    const glance = screen.getByRole('region', { name: 'Lineup at a glance' });
+    expect(glance).toHaveTextContent('Products');
+    expect(glance).toHaveTextContent('1 live · 1 beta');
+    expect(glance).toHaveTextContent('0 now · 1 next · 0 later');
+  });
+
+  it('shows no summary when nothing is established', () => {
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.queryByRole('region', { name: 'Lineup at a glance' })).not.toBeInTheDocument();
+  });
+
+  it('offers to research the lineup from the empty state, only when the user asks', () => {
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(state.rerun).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Research products and roadmap now' }));
+    expect(state.rerun).toHaveBeenCalledTimes(1);
+  });
+
   it('says "Source not recorded" plainly only where some other product has a source', () => {
     state.products = [
       { name: 'Atlas', status: 'live', description: 'Atlas is available.', revenueNote: '', url: null },
