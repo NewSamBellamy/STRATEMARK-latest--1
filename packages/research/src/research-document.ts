@@ -143,3 +143,25 @@ export function digestNoteText(title: string, digest: DocumentDigest): string {
   }
   return lines.join('\n').trim();
 }
+
+const DIGEST_HEAD = /^\*\*Digest of your document "(.+)"\*\*/;
+
+/** A digest note read back into its parts, or null when the text is not one. */
+export function parseDigestNote(text: string): { title: string; summary: string; findings: DocumentFinding[]; figures: Array<{ line: string }> } | null {
+  const lines = text.split('\n');
+  const head = DIGEST_HEAD.exec(lines[0] ?? '');
+  if (!head) return null;
+  let part: 'summary' | 'findings' | 'figures' = 'summary';
+  const summary: string[] = [];
+  const findings: DocumentFinding[] = [];
+  const figures: Array<{ line: string }> = [];
+  for (const line of lines.slice(1)) {
+    if (line.startsWith('**What it says**')) { part = 'findings'; continue; }
+    if (line.startsWith('**Figures it states**')) { part = 'figures'; continue; }
+    if (part === 'summary') { if (line.trim()) summary.push(line.trim()); continue; }
+    const item = /^- (.*?) — "(.*)"$/.exec(line);
+    if (part === 'findings' && item) findings.push({ claim: item[1]!, quote: item[2]! });
+    else if (part === 'figures' && line.startsWith('- ')) figures.push({ line: line.slice(2) });
+  }
+  return { title: head[1]!, summary: summary.join(' '), findings, figures };
+}

@@ -68,3 +68,4 @@ export * from './link-reader';
 export * from './source-assessment';
 export * from './assess-facts';
 export * from './compare-observations';
+export * from './research-document';

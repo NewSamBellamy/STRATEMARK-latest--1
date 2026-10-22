@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LlmClient } from './types';
 import { GeminiRepository, type ResearchStore, type RepoSnapshot } from './repository';
 import {
-  chunkDocument, cleanDocumentText, digestNoteText, documentDigestPrompt, gateDigest, quoteAppears, quoteStatesValue, DOCUMENT_CHUNK_CHARS,
+  chunkDocument, cleanDocumentText, digestNoteText, documentDigestPrompt, gateDigest, parseDigestNote, quoteAppears, quoteStatesValue, DOCUMENT_CHUNK_CHARS,
 } from './research-document';
 
 const DOC = [
@@ -58,6 +58,23 @@ describe('quoteStatesValue', () => {
     expect(quoteStatesValue('ARR of $42.5 million', 99)).toBe(false);
     expect(quoteStatesValue('ARR of $42.5 million', 4_250_000_000)).toBe(false);
     expect(quoteStatesValue('three offices', 3)).toBe(false);
+  });
+});
+
+describe('parseDigestNote', () => {
+  it('reads back what digestNoteText wrote', () => {
+    const digest = {
+      summary: 'Acme grew in Q3.',
+      findings: [{ claim: 'Acme has 310 employees.', quote: 'The company employs 310 people across three offices.' }],
+      figures: [{ metricType: 'employees' as const, value: 310, label: 'Headcount', quote: 'The company employs 310 people across three offices.' }],
+    };
+    const parsed = parseDigestNote(digestNoteText('memo.pdf', digest));
+    expect(parsed).toMatchObject({ title: 'memo.pdf', summary: 'Acme grew in Q3.', findings: digest.findings });
+    expect(parsed!.figures).toHaveLength(1);
+  });
+
+  it('is null for any other note', () => {
+    expect(parseDigestNote('Founder told us churn is 4% monthly.')).toBeNull();
   });
 });
 

@@ -31,6 +31,7 @@ import { SitePreview } from './LiveLandingTab';
 import { StoryImage, VideoPlayer, VideoTile } from '@/components/media/StoryMedia';
 import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
 import { OverviewCoverage } from './OverviewCoverage';
+import { YourResearch } from './YourResearch';
 import { overviewParagraph } from '../overviewSummary';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 
@@ -533,6 +534,8 @@ export function OverviewTab({ companyId }: { companyId: string }) {
       {figures && (
         <OverviewCoverage companyId={companyId} figuresFound={figures.known.length} figureSlots={figures.all.length} />
       )}
+
+      <YourResearch companyId={companyId} />
 
       <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
 
