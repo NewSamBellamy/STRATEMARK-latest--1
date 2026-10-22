@@ -572,7 +572,12 @@ async function shareCreate(request: Request, env: Env, origin: string): Promise<
   if (Number(request.headers.get('content-length') ?? 0) > SHARE_MAX_BODY_CHARS) {
     return json({ error: 'This share is too large to host. Share a single card, or use a private link.' }, 413, origin);
   }
-  const parsed = parseShareCreate(await readJson<unknown>(request, SHARE_MAX_BODY_CHARS), origin);
+  // A body with no declared length is cut off while it is read: that is also "too large", not a malformed request.
+  const text = (request.headers.get('content-type') ?? '').split(';')[0] === 'application/json' ? await readTextCapped(request, SHARE_MAX_BODY_CHARS) : '';
+  if (text === null) return json({ error: 'This share is too large to host. Share a single card, or use a private link.' }, 413, origin);
+  let body: unknown = null;
+  try { body = JSON.parse(text); } catch { /* parseShareCreate answers a bad request */ }
+  const parsed = parseShareCreate(body, origin);
   if (!parsed.ok) return json({ error: parsed.error }, parsed.status, origin);
   const input = parsed.value;
   const bytes = input.data.length + (input.og?.length ?? 0);
@@ -736,7 +741,10 @@ export default {
       if (pasted && reading) return pasted[2] ? await shareOg(pasted[1]!, env) : await sharePage(request, pasted[1]!, env);
       if (shared && reading) return await shareRead(shared[1]!, env);
     } catch {
-      return new Response('The request failed.', { status: 500, headers: { 'Cache-Control': 'no-store' } });
+      // JSON with the headers a cross-origin viewer needs: a bare 500 reads there as "could not connect".
+      return new Response(JSON.stringify({ error: 'The request failed. Try again in a moment.' }), {
+        status: 500, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(shared ? { 'Access-Control-Allow-Origin': '*' } : {}), ...SHARE_HEADERS },
+      });
     }
 
     // A picture shown by an <img> tag is requested without an Origin header, so the page that asked is read from its Referer

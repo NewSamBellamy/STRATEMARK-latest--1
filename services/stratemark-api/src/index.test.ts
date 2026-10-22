@@ -490,6 +490,28 @@ describe('reading share links is limited per visitor', () => {
   });
 });
 
+describe('share errors a browser can read', () => {
+  it('answers 413 with the too-large message for a share body past the ceiling, even with no length declared', async () => {
+    const { env } = makeEnv();
+    const huge = new ReadableStream<Uint8Array>({ pull(controller) { controller.enqueue(new Uint8Array(512 * 1024).fill(97)); } });
+    const res = await worker.fetch(new Request('https://worker.example/v1/share', {
+      method: 'POST', headers: { origin: APP, 'content-type': 'application/json', 'cf-connecting-ip': '203.0.113.9' }, body: huge, duplex: 'half',
+    } as RequestInit), env);
+    expect(res.status).toBe(413);
+    expect(((await res.json()) as { error: string }).error).toMatch(/too large/);
+  });
+
+  it('answers a failing share read with JSON the viewer page on another origin can read, not an opaque network error', async () => {
+    const { env } = makeEnv();
+    const broken = { ...(env as object), SHARES: { idFromName: (n: string) => n, get: () => { throw new Error('storage down'); } } } as never;
+    const res = await worker.fetch(new Request('https://worker.example/v1/share/abcdefghijklmnop', { headers: { 'cf-connecting-ip': '203.0.113.70' } }), broken);
+    expect(res.status).toBe(500);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(((await res.json()) as { error: string }).error).toMatch(/try again/i);
+  });
+});
+
 describe('the preview picture of a share that was stopped', () => {
   const PNG = `iVBORw0KGgoAAAANSUhEUgAABLAAAAJ2${'A'.repeat(60)}`; // a PNG header, 1200 x 630
   const picture = (env: never, id: string) => worker.fetch(new Request(`https://worker.example/s/${id}/og.png`, { headers: { 'cf-connecting-ip': '198.51.100.7' } }), env);
