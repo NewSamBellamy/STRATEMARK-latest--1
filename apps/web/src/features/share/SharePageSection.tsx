@@ -16,7 +16,7 @@ function readBase(): string {
   try { return localStorage.getItem(BASE_KEY) ?? ''; } catch { return ''; }
 }
 
-export function SharePageSection({ deckId, cardId }: { deckId: string; cardId?: string | null }) {
+export function SharePageSection({ deckId, cardId, bare = false }: { deckId: string; cardId?: string | null; /** Inside a disclosure that already frames it. */ bare?: boolean }) {
   const repo = useRepository();
   const [base, setBase] = useState(readBase);
   const [busy, setBusy] = useState(false);
@@ -48,7 +48,7 @@ export function SharePageSection({ deckId, cardId }: { deckId: string; cardId?: 
   };
 
   return (
-    <section aria-label="Share as a page" className="rounded-xl border border-border bg-surface-2/60 px-4 py-3.5">
+    <section aria-label="Share as a page" className={bare ? '' : 'rounded-xl border border-border bg-surface-2/60 px-4 py-3.5'}>
       <h3 className="flex items-center gap-2 text-[13px] font-semibold text-content">
         <FileArchive className="h-4 w-4 text-muted" aria-hidden />
         Share as a page

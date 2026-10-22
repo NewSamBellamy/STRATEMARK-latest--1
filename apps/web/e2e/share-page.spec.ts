@@ -54,7 +54,15 @@ function serve(root: string): Promise<{ server: Server; origin: string }> {
   });
 }
 
+/** The host-it-yourself section sits in a closed "Advanced" disclosure: open it when it is not already open. */
+async function openAdvanced(page: Page): Promise<void> {
+  if (!(await page.getByRole('button', { name: 'Download the page (.zip)' }).isVisible())) {
+    await page.getByText('Advanced: host the page yourself').click();
+  }
+}
+
 async function downloadShare(page: Page): Promise<{ dir: string; id: string; files: Map<string, Buffer> }> {
+  await openAdvanced(page);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download the page (.zip)' }).click();
   const file = await (await download).path();
@@ -80,6 +88,7 @@ test('a shared card opens read-only on a phone and walks into its dashboard with
   await expect(page.getByTestId('card-grid')).toBeVisible();
   await page.getByTestId('card-grid').getByRole('button', { name: 'Share card' }).first().click();
   await expect(page.getByRole('dialog', { name: /Share/ })).toBeVisible();
+  await openAdvanced(page);
   await page.getByLabel('Where you will host it (optional)').fill('https://share.example.com');
   const share = await downloadShare(page);
 

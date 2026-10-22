@@ -320,7 +320,10 @@ function PrivateLinkDialog({
           </>
         )}
 
-        {canPage && page && <SharePageSection deckId={page.deckId} cardId={page.cardId ?? null} />}
+        {canPage && page && <details className="rounded-xl border border-border px-4 py-2.5">
+          <summary className="cursor-pointer text-[12px] font-medium text-muted">Advanced: host the page yourself</summary>
+          <div className="mt-3"><SharePageSection bare deckId={page.deckId} cardId={page.cardId ?? null} /></div>
+        </details>}
       </div>
     </Modal>
   );
