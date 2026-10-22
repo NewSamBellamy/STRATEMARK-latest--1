@@ -1,7 +1,7 @@
 /**
- * Dominant brand-color extraction from a logo image (audit Part 1.1).
- * Fetches with CORS, samples a downscaled canvas, and picks the most frequent
- * saturated hue bucket — ignoring near-white/near-black/transparent pixels.
+ * Reading a logo's pixels (audit Part 1.1): the brand colours on the card's
+ * frame and the logo quality gate both work from one small sample of the
+ * image. Fetches with CORS and draws a downscaled canvas.
  * Fails silently (null) on CORS-opaque hosts; callers fall back to the LLM
  * palette or the default theme. Results are memoized per URL.
  */
@@ -35,60 +35,64 @@ export function isCorsOpaqueSource(url: string): boolean {
   return false;
 }
 
+/** Sampled logo size: small enough to be cheap, large enough to see a mark's colours and coverage. */
+export const SAMPLE_PX = 32;
+const pixelCache = new Map<string, Promise<Uint8ClampedArray | null>>();
+
+/**
+ * The logo's pixels, drawn at SAMPLE_PX square (RGBA bytes), or null when the
+ * image cannot be read (no CORS, not an image). Memoized per URL.
+ */
+export function readLogoPixels(url: string): Promise<Uint8ClampedArray | null> {
+  const hit = pixelCache.get(url);
+  if (hit) return hit;
+  if (!hasHostedApi() && isCorsOpaqueSource(url)) return Promise.resolve(null);
+  const p = sample(url).catch(() => null);
+  pixelCache.set(url, p);
+  return p;
+}
+
+/** The single most present brand colour in a logo (see brandPaletteFrom), or null. */
 export function extractDominantColor(url: string): Promise<string | null> {
   const hit = cache.get(url);
   if (hit) return hit;
-  if (!hasHostedApi() && isCorsOpaqueSource(url)) return Promise.resolve(null);
-  const p = compute(url).catch(() => null);
+  const p = readLogoPixels(url).then(async (data) => {
+    if (!data) return null;
+    const { brandPaletteFrom } = await import('@/features/card/logoQuality');
+    return brandPaletteFrom(data, 1)[0] ?? null;
+  });
   cache.set(url, p);
   return p;
 }
 
-async function compute(url: string): Promise<string | null> {
-  const res = await fetch(sampleUrl(url), { mode: 'cors', credentials: 'omit' });
-  if (!res.ok) return null;
-  const blob = await res.blob();
-  const bitmap = await createImageBitmap(blob);
-  const size = 24;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return null;
-  ctx.drawImage(bitmap, 0, 0, size, size);
-  const { data } = ctx.getImageData(0, 0, size, size);
-
-  const buckets = new Map<string, { count: number; r: number; g: number; b: number; sat: number }>();
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i]!;
-    const g = data[i + 1]!;
-    const b = data[i + 2]!;
-    const a = data[i + 3]!;
-    if (a < 128) continue;
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    if (max > 242 && min > 230) continue; // near-white
-    if (max < 28) continue; // near-black
-    const sat = max === 0 ? 0 : (max - min) / max;
-    // Quantize to 32-step buckets.
-    const key = `${r >> 5}-${g >> 5}-${b >> 5}`;
-    const bucket = buckets.get(key) ?? { count: 0, r: 0, g: 0, b: 0, sat: 0 };
-    bucket.count += 1;
-    bucket.r += r;
-    bucket.g += g;
-    bucket.b += b;
-    bucket.sat += sat;
-    buckets.set(key, bucket);
-  }
-  let best: { score: number; hex: string } | null = null;
-  for (const b of buckets.values()) {
-    const avgSat = b.sat / b.count;
-    // Weight frequency by saturation so grey backgrounds don't win over the mark.
-    const score = b.count * (0.35 + avgSat);
-    if (!best || score > best.score) {
-      const to = (v: number) => Math.round(v / b.count).toString(16).padStart(2, '0');
-      best = { score, hex: `#${to(b.r)}${to(b.g)}${to(b.b)}` };
+async function drawable(blob: Blob): Promise<CanvasImageSource> {
+  try {
+    return await createImageBitmap(blob);
+  } catch {
+    // SVG blobs are not accepted by createImageBitmap in every browser: draw them through an image element instead.
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error('not an image'));
+        img.src = objectUrl;
+      });
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
     }
   }
-  return best?.hex ?? null;
+}
+
+async function sample(url: string): Promise<Uint8ClampedArray | null> {
+  const res = await fetch(sampleUrl(url), { mode: 'cors', credentials: 'omit' });
+  if (!res.ok) return null;
+  const source = await drawable(await res.blob());
+  const canvas = document.createElement('canvas');
+  canvas.width = SAMPLE_PX;
+  canvas.height = SAMPLE_PX;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(source, 0, 0, SAMPLE_PX, SAMPLE_PX);
+  return ctx.getImageData(0, 0, SAMPLE_PX, SAMPLE_PX).data;
 }

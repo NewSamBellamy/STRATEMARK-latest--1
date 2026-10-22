@@ -193,20 +193,36 @@
   width: 84px;
   aspect-ratio: 1;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--card-accent) 18%, #d5d0c4);
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--card-accent) 70%, #0b1512);
   border-radius: 22px;
-  color: var(--card-accent, #3f3f46);
+  color: #fffdf5;
   background:
-    radial-gradient(circle at 35% 25%, #ffffffd9, transparent 46%),
-    color-mix(in srgb, var(--card-accent) 7%, #f8f5ed);
+    radial-gradient(circle at 30% 18%, #ffffff4d, transparent 52%),
+    linear-gradient(140deg, var(--card-accent, #46524e) 0%, color-mix(in srgb, var(--card-highlight, #6a756f) 80%, #0b1512) 100%);
   box-shadow:
-    0 8px 18px -14px color-mix(in srgb, var(--card-accent) 55%, transparent),
-    inset 0 1px 0 #fff;
+    0 10px 20px -12px color-mix(in srgb, var(--card-accent) 70%, transparent),
+    inset 0 1px 0 #ffffff59,
+    inset 0 -2px 4px #00000024;
   font-family: 'Parkinsans', sans-serif;
   font-size: 34px;
   font-weight: 700;
-  letter-spacing: -0.08em;
+  letter-spacing: -0.06em;
   line-height: 1;
+  text-shadow: 0 1px 1px #0000003d;
+  mix-blend-mode: normal;
+}
+/* A cream keyline inside the tile, like an embossed seal. */
+.collectible__monogram::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 1px solid #fffdf54d;
+  border-radius: 17px;
+  pointer-events: none;
+}
+.collectible__brand:has(.collectible__monogram) {
+  mix-blend-mode: normal;
 }
 .collectible__art-label {
   position: absolute;

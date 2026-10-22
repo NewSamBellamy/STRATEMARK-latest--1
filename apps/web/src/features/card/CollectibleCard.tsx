@@ -30,8 +30,10 @@ export function CollectibleCard({
 }) {
   const artwork = DEFAULT_CARD_ART[data.card.cardType];
   const companyKey = data.company?.id ?? view.title;
-  const [extractedBrand, setExtractedBrand] = useState<{ key: string; color: string } | null>(null);
-  const logoColor = extractedBrand?.key === companyKey ? extractedBrand.color : null;
+  const [extractedBrand, setExtractedBrand] = useState<{ key: string; colors: string[] } | null>(null);
+  // The brand's own colours, read from its logo (one to three, most present first).
+  const logoPalette = !artwork && !view.signal && extractedBrand?.key === companyKey ? extractedBrand.colors : [];
+  const logoColor = logoPalette[0] ?? null;
   const brand = ['scraped', 'manual'].includes(data.company?.brandTheme?.source ?? '')
     ? data.company?.brandTheme
     : null;
@@ -77,7 +79,7 @@ export function CollectibleCard({
                 bare
                 logoUrl={logoUrlOverride ?? data.company?.logoUrl}
                 retryNonce={logoRetryNonce}
-                onColor={(color) => setExtractedBrand({ key: companyKey, color })}
+                onPalette={(colors) => setExtractedBrand({ key: companyKey, colors })}
                 onAvailabilityChange={onLogoAvailabilityChange}
                 className="h-full w-full"
               />

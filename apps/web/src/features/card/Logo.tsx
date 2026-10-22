@@ -3,6 +3,9 @@ import { knownCompanyDomain, knownCompanyLogoUrl } from '@mi/research';
 import { cn } from '@/lib/cn';
 import { initials } from '@/lib/format';
 import { logoDomainOf, safeLogoUrl } from './logoSources';
+import {
+  HERO_DISPLAY_PX, brandPaletteFrom, logoVerdict, pixelStatsFrom, rememberLogo, rememberedLogo,
+} from './logoQuality';
 
 /**
  * Hero-logo quality thresholds.
@@ -61,9 +64,27 @@ interface Candidate {
   vector: boolean;
 }
 
-/** Honest 24px+ marks remain useful when capped at 2×; smaller tab icons do not. */
+/** A hero mark must pass the quality gate on its size alone: sharp enough for the art window, a sane shape. */
 export function isHeroLogoUsable(candidate: Pick<Candidate, 'width' | 'height' | 'vector'>): boolean {
-  return candidate.vector || Math.min(candidate.width, candidate.height) >= MIN_USABLE_PX;
+  return logoVerdict({ ...candidate, displayPx: HERO_DISPLAY_PX }).ok;
+}
+
+/**
+ * The full gate for one hero candidate: size and shape first, then (when the
+ * image can be read) its pixels, which catch blank images and grey placeholder
+ * glyphs and give the brand colours. Remembered per address, so a card does not
+ * re-check a logo on every render or visit.
+ */
+async function heroCheck(hit: Candidate): Promise<{ ok: boolean; palette: string[] }> {
+  if (!isHeroLogoUsable(hit)) return { ok: false, palette: [] };
+  const known = rememberedLogo(hit.src);
+  if (known) return { ok: known.verdict.ok, palette: known.palette };
+  const { readLogoPixels } = await import('@/lib/extractColor');
+  const data = await readLogoPixels(hit.src);
+  const verdict = logoVerdict({ ...hit, displayPx: HERO_DISPLAY_PX, pixels: data ? pixelStatsFrom(data) : null });
+  const palette = data && verdict.ok ? brandPaletteFrom(data) : [];
+  rememberLogo(hit.src, { verdict, palette, read: Boolean(data) });
+  return { ok: verdict.ok, palette };
 }
 
 /** Vector beats raster; otherwise the larger short side wins. */
@@ -116,7 +137,7 @@ export function Logo({
   name,
   website,
   className,
-  onColor,
+  onPalette,
   bare = false,
   retryNonce = 0,
   logoUrl,
@@ -131,8 +152,8 @@ export function Logo({
    */
   logoUrl?: string | null;
   className?: string;
-  /** Fires with the logo's dominant color when extraction succeeds (CORS-permitting). */
-  onColor?: (hex: string) => void;
+  /** Hero only: fires with the logo's own brand colours (one to three, most present first; CORS-permitting). */
+  onPalette?: (colors: string[]) => void;
   /** Render without the chip chrome (used inside the card's hero window). */
   bare?: boolean;
   /** Bump to re-walk the source chain with fresh (cache-busted) requests. */
@@ -184,25 +205,29 @@ export function Logo({
     }
     let cancelled = false;
     void (async () => {
-      // Probe every source at once; surface the best hit as results land so
-      // a fast small icon can show while a slower large one is still loading.
+      // Probe every source at once; surface the best hit that passes the gate as results land,
+      // so a fast good icon can show while a slower, larger one is still loading. A candidate that
+      // fails the gate is simply passed over for the next one.
       const result: { winner: Candidate | null } = { winner: null };
       await Promise.all(
         sources.map(async (src) => {
           const hit = await probe(src);
           if (cancelled || !hit) return;
-          if (!result.winner || isBetterLogo(hit, result.winner)) {
-            result.winner = hit;
-            setBest(hit);
-          }
+          if (result.winner && !isBetterLogo(hit, result.winner)) return;
+          const check = bare
+            ? await heroCheck(hit)
+            : { ok: hit.vector || hit.width >= MIN_USABLE_PX, palette: [] };
+          if (cancelled || !check.ok) return;
+          if (result.winner && !isBetterLogo(hit, result.winner)) return;
+          result.winner = hit;
+          setBest(hit);
+          // Every passing candidate is the same company's mark: keep the colours from whichever one could be read.
+          if (check.palette.length > 0) onPalette?.(check.palette);
         }),
       );
       if (cancelled) return;
-      if (!cancelled) {
-        setSettled(true);
-        const winner = result.winner;
-        onAvailabilityChange?.(Boolean(winner && (bare ? isHeroLogoUsable(winner) : winner.vector || winner.width >= MIN_USABLE_PX)));
-      }
+      setSettled(true);
+      onAvailabilityChange?.(Boolean(result.winner));
     })();
     return () => {
       cancelled = true;
@@ -210,22 +235,7 @@ export function Logo({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, bare, onAvailabilityChange]);
 
-  // Brand-color extraction runs on the winning source only.
-  useEffect(() => {
-    if (!onColor || !best || best.width < MIN_USABLE_PX) return;
-    let cancelled = false;
-    void import('@/lib/extractColor').then(({ extractDominantColor }) =>
-      extractDominantColor(best.src).then((hex) => {
-        if (!cancelled && hex) onColor(hex);
-      }),
-    );
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [best?.src]);
-
-  const usable = best && (bare ? isHeroLogoUsable(best) : best.vector || best.width >= MIN_USABLE_PX) ? best : null;
+  const usable = best;
 
   return (
     <div
@@ -259,10 +269,12 @@ export function Logo({
         // Probing — hold the space so cards don't jump as art resolves.
         <span aria-hidden className="block h-full w-full" />
       ) : bare ? (
-        // A designed lettermark plate is preferable to stretching a tiny favicon.
+        // No candidate passed the gate: a monogram tile in the card's colours, never a blurry or broken image.
         <span
+          role="img"
           aria-label={`${name} monogram`}
           className="collectible__monogram"
+          data-testid="logo-monogram"
         >
           {initials(name)}
         </span>

@@ -5,10 +5,15 @@ import { renderWithProviders } from '@/test/test-utils';
 import { CollectibleCard } from './CollectibleCard';
 
 vi.mock('./Logo', () => ({
-  Logo: ({ onColor }: { onColor?: (hex: string) => void }) => (
-    <button type="button" onClick={() => onColor?.('#cf5b31')}>
-      resolve logo color
-    </button>
+  Logo: ({ onPalette }: { onPalette?: (colors: string[]) => void }) => (
+    <>
+      <button type="button" onClick={() => onPalette?.(['#cf5b31'])}>
+        resolve logo color
+      </button>
+      <button type="button" onClick={() => onPalette?.(['#0064a0', '#e31837', '#2a9d4b'])}>
+        resolve three logo colors
+      </button>
+    </>
   ),
 }));
 
