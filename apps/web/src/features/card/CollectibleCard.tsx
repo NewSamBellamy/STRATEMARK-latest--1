@@ -4,6 +4,7 @@ import { clampForChrome, deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { faceFooter } from './faceFooter';
 import { Logo } from './Logo';
+import { useSignalHero } from './useSignalHero';
 
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
@@ -31,6 +32,10 @@ export function CollectibleCard({
 }) {
   const artwork = DEFAULT_CARD_ART[data.card.cardType];
   const companyKey = data.company?.id ?? view.title;
+  // A signal card's hero is the picture its own source published; the default art holds until one loads.
+  const [heroRef, hero] = useSignalHero(data, Boolean(view.signal));
+  const [heroFailed, setHeroFailed] = useState<string | null>(null);
+  const heroShown = hero && heroFailed !== hero.src ? hero : null;
   const [extractedBrand, setExtractedBrand] = useState<{ key: string; colors: string[] } | null>(null);
   // The brand's own colours, read from its logo (one to three, most present first).
   const logoPalette = !artwork && !view.signal && extractedBrand?.key === companyKey ? extractedBrand.colors : [];
@@ -71,6 +76,7 @@ export function CollectibleCard({
 
   return (
     <div
+      ref={heroRef}
       className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''} ${frame ? 'collectible--brand' : ''}`}
       style={{ '--card-accent': accent, '--card-highlight': frame ? frame['--card-c2'] : highlight, ...frame } as CSSProperties}
       data-brand-colors={logoPalette.length > 0 ? logoPalette.join(' ') : framePrimary ? [framePrimary, frameSecondary].filter(Boolean).join(' ') : undefined}
@@ -83,7 +89,13 @@ export function CollectibleCard({
         <div className="collectible__art" aria-hidden="true">
           {view.signal || artwork ? (
             <div className="collectible__signal-art">
-              <MarketCardArt type={data.card.cardType} />
+              {heroShown ? (
+                <>
+                  <img src={heroShown.src} className="h-full w-full object-cover" alt="" draggable={false} loading="lazy"
+                    referrerPolicy="no-referrer" data-testid="signal-hero" onError={() => setHeroFailed(heroShown.src)} />
+                  {heroShown.credit && <span className="collectible__hero-credit">{heroShown.credit}</span>}
+                </>
+              ) : <MarketCardArt type={data.card.cardType} />}
             </div>
           ) : (
             <div className="collectible__brand">
