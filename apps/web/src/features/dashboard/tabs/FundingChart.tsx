@@ -7,7 +7,7 @@ import { Bar, BarChart, CartesianGrid, Tooltip as ReTooltip, XAxis, YAxis } from
 import type { MissionGovernanceContent } from '@mi/contracts';
 import { chartTheme, tint } from '@/lib/theme';
 import { useTheme } from '@/lib/settings/theme';
-import { useWidth } from './metricViz';
+import { useChartAccent, useWidth } from './metricViz';
 import { formatUsdCompact } from '../snapshot';
 
 type Round = NonNullable<MissionGovernanceContent['fundingRounds']>[number];
@@ -48,8 +48,8 @@ export function FundingChart({ rounds }: { rounds: readonly Round[] | undefined 
   const points = fundingPoints(rounds);
   const c = chartTheme(useTheme((s) => s.resolved) === 'dark');
   const [ref, width] = useWidth();
+  const color = useChartAccent();
   if (points.length < 2) return null;
-  const color = '#F15A24';
   return (
     <div className="panel p-4" data-testid="funding-chart">
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted">
