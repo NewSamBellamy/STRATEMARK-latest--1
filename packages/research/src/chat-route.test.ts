@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { fitPassages, passageIsRelevant, resolveMemoryAnswer, routeChat, type StoredPassage } from './chat-route';
+import { chatTier, fitPassages, passageIsRelevant, resolveMemoryAnswer, routeChat, type StoredPassage } from './chat-route';
 
 const two = [{}, {}];
 const base = { question: 'How much has Acme raised?', hasFreshFlag: false, storedPassages: two, isGreeting: false };
+
+describe('chatTier', () => {
+  it('answers ordinary questions on the quick line', () => {
+    expect(chatTier('How many employees does Acme have?')).toBe('quick');
+    expect(chatTier('Who is the CEO?')).toBe('quick');
+  });
+  it('gives analytical, head-to-head, forced and very long questions the stronger line', () => {
+    expect(chatTier('Compare Acme with Globex on pricing')).toBe('deep');
+    expect(chatTier('What are the strategic implications of the merger?')).toBe('deep');
+    expect(chatTier('Who is the CEO?', { comparing: true })).toBe('deep');
+    expect(chatTier('Who is the CEO?', { deep: true })).toBe('deep');
+    expect(chatTier(Array.from({ length: 45 }, () => 'word').join(' '))).toBe('deep');
+  });
+});
 
 describe('routeChat', () => {
   it('answers a greeting without searching, whatever is stored', () => {

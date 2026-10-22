@@ -131,6 +131,11 @@ export interface GeminiClientConfig {
    * ordinary fallback ladder answers, so a chat never fails because of this choice.
    */
   chatModel?: string;
+  /**
+   * Quick chat model: everyday conversation turns (label 'chat:quick') run here for a fast answer. Unset uses
+   * DEFAULT_QUICK_CHAT_MODEL; an empty string keeps them on the grounded model.
+   */
+  quickChatModel?: string;
   /** Injectable for tests. */
   fetchImpl?: typeof fetch;
   /**
@@ -186,6 +191,8 @@ export const DEFAULT_GROUNDED_MODEL = 'gemini-flash-lite-latest';
 export const DEFAULT_REASONING_MODEL = 'gemini-3.1-pro-preview';
 /** Conversation turns (label 'chat') run on this stronger line; the ordinary fallback ladder answers if it cannot. */
 export const DEFAULT_CHAT_MODEL = DEFAULT_REASONING_MODEL;
+/** Everyday conversation turns (label 'chat:quick') run on this fast line; hard questions keep the stronger one. */
+export const DEFAULT_QUICK_CHAT_MODEL = 'gemini-flash-latest';
 export const DEFAULT_STRUCTURE_MODEL = 'gemini-3.5-flash-lite';
 
 // Vertex AI model IDs verified in us-central1.
@@ -280,6 +287,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
   const structureModel = config.structureModel ?? DEFAULT_STRUCTURE_MODEL;
   const judgeModel = config.judgeModel || undefined;
   const chatModel = config.chatModel === undefined ? DEFAULT_CHAT_MODEL : (config.chatModel || undefined);
+  const quickChatModel = config.quickChatModel === undefined ? DEFAULT_QUICK_CHAT_MODEL : (config.quickChatModel || undefined);
 
   // Verification-class calls (metric verify, batch verify, red-team) belong to
   // the judge: the model that verifies dashboards must be configurable apart
@@ -296,7 +304,9 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       ? { model: judgeModel, kind: 'judge' as const, chat: false }
       : chatModel && label === 'chat'
         ? { model: chatModel, kind: 'ground' as const, chat: true }
-        : { model: groundedModel, kind: 'ground' as const, chat: false };
+        : quickChatModel && label === 'chat:quick'
+          ? { model: quickChatModel, kind: 'ground' as const, chat: true }
+          : { model: groundedModel, kind: 'ground' as const, chat: false };
   const structureRoute = (schema: unknown) =>
     judgeModel && VERIFICATION_SCHEMAS.has(schema)
       ? { model: judgeModel, kind: 'judge' as const }
@@ -332,6 +342,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       model === structureModel ? structureRpm : 0,
       model === judgeModel ? groundedRpm : 0,
       model === chatModel ? groundedRpm : 0,
+      model === quickChatModel ? groundedRpm : 0,
     ].filter((rpm) => rpm > 0);
     const limiter = rpms.length ? createRateLimiter(Math.min(...rpms)) : null;
     limiters.set(model, limiter);

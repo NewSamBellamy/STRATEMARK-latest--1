@@ -102,6 +102,8 @@ export interface ResearchProgress {
 
 export interface ResearchHandlers {
   onProgress?: (progress: ResearchProgress) => void;
+  /** The answer so far, as it streams in (engines whose transport can stream). The returned thread is authoritative. */
+  onDraft?: (textSoFar: string) => void;
   signal?: AbortSignal;
 }
 
@@ -379,6 +381,8 @@ export interface AskResearchInput {
   attachments?: { reportIds?: string[]; threadIds?: string[] };
   /** Search again: skip the answer from research on file and run a fresh search. */
   fresh?: boolean;
+  /** Answer on the stronger, slower reasoning model instead of the fast one. */
+  deep?: boolean;
 }
 
 // ---------------------------------------------------------------------------

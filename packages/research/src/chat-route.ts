@@ -27,6 +27,20 @@ export function asksForRecent(question: string): boolean {
   return RECENT_ASK.test(question);
 }
 
+const DEEP_ASK = /\b(?:compare|comparison|versus|vs\.?|analy[sz]e|analysis|strateg(?:y|ic)|forecast|implications?|assess(?:ment)?|evaluate|thesis|trade-?offs?|due diligence|deep dive|in depth|step by step|pros and cons)\b/i;
+/** Questions longer than this many words are treated as hard. */
+export const DEEP_QUESTION_WORDS = 40;
+
+/**
+ * Which conversation line answers: `quick` (a fast model; most questions) or `deep` (the stronger reasoning model;
+ * long, analytical or head-to-head questions). The user can force deep with the flag.
+ */
+export function chatTier(question: string, options: { comparing?: boolean; deep?: boolean } = {}): 'quick' | 'deep' {
+  if (options.deep || options.comparing) return 'deep';
+  const words = question.trim().split(/\s+/).filter(Boolean).length;
+  return words > DEEP_QUESTION_WORDS || DEEP_ASK.test(question) ? 'deep' : 'quick';
+}
+
 export function routeChat(input: {
   question: string;
   hasFreshFlag?: boolean;

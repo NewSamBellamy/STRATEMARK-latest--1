@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createGeminiClient, DEFAULT_CHAT_MODEL, DEFAULT_GROUNDED_MODEL } from './gemini';
+import { createGeminiClient, DEFAULT_CHAT_MODEL, DEFAULT_GROUNDED_MODEL, DEFAULT_QUICK_CHAT_MODEL } from './gemini';
 import { CHAT_SYSTEM, NOT_IN_RESEARCH_PHRASE } from './prompts';
 
 const answer = () => new Response(JSON.stringify({
@@ -8,15 +8,34 @@ const answer = () => new Response(JSON.stringify({
 
 const modelOf = (url: unknown) => /models\/([^:/]+):/.exec(String(url))?.[1];
 
-function client(over: { chatModel?: string; respond?: (model: string) => Response } = {}) {
+function client(over: { chatModel?: string; quickChatModel?: string; respond?: (model: string) => Response } = {}) {
   const urls: string[] = [];
   const fetchImpl = vi.fn(async (url: unknown) => {
     urls.push(String(url));
     return (over.respond ?? answer)(modelOf(url) ?? '');
   });
-  const c = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl: fetchImpl as unknown as typeof fetch, groundedRpm: 0, structureRpm: 0, ...(over.chatModel !== undefined ? { chatModel: over.chatModel } : {}) });
+  const c = createGeminiClient({ apiKey: 'test-placeholder', fetchImpl: fetchImpl as unknown as typeof fetch, groundedRpm: 0, structureRpm: 0, ...(over.chatModel !== undefined ? { chatModel: over.chatModel } : {}), ...(over.quickChatModel !== undefined ? { quickChatModel: over.quickChatModel } : {}) });
   return { c, models: () => urls.map(modelOf) };
 }
+
+describe('the quick chat line', () => {
+  it('answers everyday turns on the fast model and keeps the stronger one for hard questions', async () => {
+    const { c, models } = client();
+    await c.ground('a quick question', { label: 'chat:quick' });
+    await c.ground('a hard question', { label: 'chat' });
+    expect(models()).toEqual([DEFAULT_QUICK_CHAT_MODEL, DEFAULT_CHAT_MODEL]);
+    expect(DEFAULT_QUICK_CHAT_MODEL).not.toBe(DEFAULT_CHAT_MODEL);
+  });
+
+  it('can be pointed at another line, or switched off onto the grounded model', async () => {
+    const custom = client({ quickChatModel: 'my-quick-model' });
+    await custom.c.ground('q', { label: 'chat:quick' });
+    expect(custom.models()).toEqual(['my-quick-model']);
+    const off = client({ quickChatModel: '' });
+    await off.c.ground('q', { label: 'chat:quick' });
+    expect(off.models()).toEqual([DEFAULT_GROUNDED_MODEL]);
+  });
+});
 
 describe('the chat model', () => {
   it('runs conversation turns on the stronger line and everything else on the grounded model', async () => {

@@ -13,7 +13,7 @@ import type { MarketIntelRepository } from '@mi/contracts';
 import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import { loadSampleSnapshot } from '@/sample/loadSampleSnapshot';
 import { GeminiRepository, assessFacts, type ResearchStore } from '@mi/research';
-import { readAssetSource, readPreviewSource, supportsPreviewSource } from './local-source-reader';
+import { hasLocalSourceBridge, readAssetSource, readPreviewSource, supportsPreviewSource } from './local-source-reader';
 import { previewGeminiFetch } from './local-gemini-fetch';
 import { HOSTED_KEY } from '@/lib/hostedApi';
 import { IpcRepository, isElectron } from './ipc-repository';
@@ -79,6 +79,9 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       apiKey,
       fetchImpl: previewGeminiFetch,
       model: model || undefined,
+      // Chat answers stream in as they are written. Only a call that goes straight to Google can: the hosted
+      // Worker and the dev bridge relay the plain request only.
+      streaming: apiKey !== HOSTED_KEY && !hasLocalSourceBridge(),
       // LLM as judge: verifications (metric verify, batch verify, red-team)
       // run on this model; blank keeps them on the research model.
       judgeModel: judgeModel || undefined,

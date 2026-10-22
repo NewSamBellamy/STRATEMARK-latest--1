@@ -292,6 +292,8 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
   // The question in flight: shown as your bubble at once, restored to the box
   // if it fails so nothing you typed is lost.
   const [pending, setPending] = useState<string | null>(null);
+  // The answer as it streams in, shown under your question until the finished reply replaces it.
+  const [streamed, setStreamed] = useState('');
   const [failed, setFailed] = useState<{ question: string; scope: ResearchScope | null; threadId?: string } | null>(null);
   // Pinned context: reports/conversations attached to THIS chat. They ride
   // along with every question as the grounding's main focus.
@@ -395,6 +397,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     setError(null);
     setFailed(null);
     setPending(question);
+    setStreamed('');
     try {
       const attachments =
         attachedReportIds.length > 0 || attachedThreadIds.length > 0
@@ -404,6 +407,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
         threadId
           ? { threadId, question, attachments, ...(fresh ? { fresh: true } : {}) }
           : { scope: forScope ?? undefined, question, attachments, ...(fresh ? { fresh: true } : {}) },
+        { onDraft: (text) => setStreamed(text) },
       );
       setThread(t);
       void qc.invalidateQueries({ queryKey: ['researchThreads'] });
@@ -415,6 +419,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     } finally {
       setBusy(false);
       setPending(null);
+      setStreamed('');
     }
   };
 
@@ -845,7 +850,16 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
               <div className="max-w-[85%] rounded-2xl rounded-br-md bg-content/5 px-3 py-2 text-[13px] text-content">{pending}</div>
             </div>
           )}
-          {busy && <TypingBubble active={busy} />}
+          {busy && streamed.trim() ? (
+            <div className="mt-4 max-w-full" aria-live="polite" data-testid="chat-draft">
+              <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-faint">Stratemark</p>
+              <article className="markdown text-[13px] text-content/90">
+                <SafeMarkdown components={CHAT_MD_COMPONENTS} linkClassName="link">
+                  {splitFollowUps(streamed).body}
+                </SafeMarkdown>
+              </article>
+            </div>
+          ) : busy && <TypingBubble active={busy} />}
           {error && (
             <div className="mt-4 rounded-lg border border-negative/40 bg-negative/10 p-3 text-[13px] text-negative">
               {error}

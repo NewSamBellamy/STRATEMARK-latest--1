@@ -238,3 +238,27 @@ describe('the card reader entry', () => {
     expect(fake.askResearch).not.toHaveBeenCalled();
   });
 });
+
+describe('an answer streams in while it is written', () => {
+  it('shows the draft under your question, then the finished reply replaces it', async () => {
+    const fake = fakeRepo([thread('recent', 'Recent question', 1)]);
+    let finish: (() => void) | null = null;
+    fake.askResearch.mockImplementation((input: { threadId?: string; question: string }, handlers?: { onDraft?: (t: string) => void }) =>
+      new Promise((resolve) => {
+        handlers?.onDraft?.('Acme raised a Series B');
+        finish = () => resolve({
+          ...thread('recent', 'Recent question', 1),
+          messages: [msg('nq', 'user', input.question, 0), msg('na', 'assistant', 'Acme raised a Series B of $40M.', 0, 'fresh')],
+        });
+      }));
+    const { user } = panel(fake);
+    await user.click(screen.getByRole('button', { name: 'open card chat' }));
+    await screen.findByText('Answer for Recent question');
+    await send(user, 'How much did they raise?');
+    const draft = await screen.findByTestId('chat-draft');
+    expect(within(draft).getByText('Acme raised a Series B')).toBeInTheDocument();
+    finish!();
+    expect(await screen.findByText('Acme raised a Series B of $40M.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('chat-draft')).not.toBeInTheDocument());
+  });
+});

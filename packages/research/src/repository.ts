@@ -249,7 +249,7 @@ import { readCompanyOriginals } from './core-source-coverage';
 import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } from './metric-support';
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { answerSize, buildChatPrompt, formatCompanyBlock, formatDeckRankings, isGreeting } from './chat-context';
-import { dropQuestionOnlyFigures, routeChat } from './chat-route';
+import { chatTier, dropQuestionOnlyFigures, routeChat } from './chat-route';
 import { answerFromMemory, answerGreeting, compareArchive, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
@@ -6854,7 +6854,7 @@ export class GeminiRepository implements MarketIntelRepository {
     return { text, citations: usableCitations(citations).filter((citation) => text.includes(citation.url)) };
   }
 
-  async askResearch(input: AskResearchInput): Promise<ResearchThread> {
+  async askResearch(input: AskResearchInput, handlers?: ResearchHandlers): Promise<ResearchThread> {
     const now = new Date().toISOString();
     const rid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
@@ -7009,7 +7009,14 @@ ${references}`
 
     const g = await this.client.ground(
       buildChatPrompt({ dataBlocks, history, question: input.question, size, lastTime: memory.lastTime }),
-      { system: CHAT_SYSTEM, label: 'chat', priority: 'urgent' },
+      {
+        system: CHAT_SYSTEM,
+        // Most questions get the fast line; long, analytical or head-to-head ones keep the stronger model.
+        label: chatTier(input.question, { comparing, deep: input.deep }) === 'deep' ? 'chat' : 'chat:quick',
+        priority: 'urgent',
+        signal: handlers?.signal,
+        ...(handlers?.onDraft ? { onText: handlers.onDraft } : {}),
+      },
     );
     // Keep what the search itself attributed, so this research is not wasted. Never fails the answer.
     const kept = keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g);
