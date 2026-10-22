@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
 import { downloadBytes } from '@/lib/share/download';
-import { readDamagedResearch, setDamagedResearchAside } from './browserResearchStore';
+import { readBrowserResearchData, readDamagedResearch, setDamagedResearchAside } from './browserResearchStore';
 
 /**
  * Shown instead of the app when the saved workspace cannot be read. The research is the
@@ -17,6 +17,18 @@ export function DamagedResearchPanel({ message, onTryAgain, onStartedEmpty }: {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // The app keeps the previous save beside the current one: when the current one is damaged that copy is usually fine. Read only.
+  const [lastGoodSave, setLastGoodSave] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    readBrowserResearchData().then((data) => { if (!cancelled) setLastGoodSave(data.backup); }, () => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  const downloadLastGoodSave = () => {
+    if (lastGoodSave == null) return;
+    downloadBytes(`stratemark-last-good-research-${new Date().toISOString().slice(0, 10)}.json`, new TextEncoder().encode(lastGoodSave), 'application/json');
+  };
 
   const download = async () => {
     setNote(null);
@@ -49,6 +61,7 @@ export function DamagedResearchPanel({ message, onTryAgain, onStartedEmpty }: {
       <p>{message}</p>
       <p>Your saved research has not been changed or deleted. You can keep a copy, try again, or start with an empty workspace.</p>
       <div className="flex flex-wrap gap-2">
+        {lastGoodSave != null && <button className="btn-ghost" type="button" onClick={downloadLastGoodSave}><Download className="h-4 w-4" />Download the last good save</button>}
         <button className="btn-ghost" type="button" onClick={() => void download()}><Download className="h-4 w-4" />Download the damaged data</button>
         <button className="btn-ghost" type="button" onClick={onTryAgain}>Try again</button>
         {!confirming && <button className="btn-ghost" type="button" disabled={busy} onClick={() => setConfirming(true)}>Start with an empty workspace</button>}

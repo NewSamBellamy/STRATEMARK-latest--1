@@ -84,6 +84,25 @@ describe('the damaged saved workspace screen', () => {
     });
   });
 
+  it('offers the intact previous save for download when there is one (red-team M4), and nothing when there is none', async () => {
+    act(() => useApiKey.setState({ apiKey: fakeKey, hosted: false, hasKey: true }));
+    const view = open();
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Download the last good save/ })).toBeNull();
+    view.unmount();
+
+    const GOOD = '{"schemaVersion":1,"markets":[]}';
+    localStorage.setItem(`${KEY}.backup`, GOOD);
+    open();
+    await userEvent.click(await screen.findByRole('button', { name: /Download the last good save/ }));
+    expect(downloadBytes).toHaveBeenCalledTimes(1);
+    const [name, bytes] = vi.mocked(downloadBytes).mock.calls[0]!;
+    expect(name).toMatch(/^stratemark-last-good-research-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(new TextDecoder().decode(bytes)).toBe(GOOD);
+    expect(localStorage.getItem(KEY)).toBe(DAMAGED);
+    expect(localStorage.getItem(`${KEY}.backup`)).toBe(GOOD);
+  });
+
   it('Try again reloads the page', async () => {
     act(() => useApiKey.setState({ apiKey: fakeKey, hosted: false, hasKey: true }));
     const reload = vi.fn();
