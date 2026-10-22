@@ -1,8 +1,8 @@
 import { sourceHref } from '@/lib/sourceHref';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, ExternalLink, SearchX } from 'lucide-react';
-import { publisherOf, type CompanyMetric } from '@mi/contracts';
+import { ArrowRight, ChevronLeft, ChevronRight, ExternalLink, SearchX } from 'lucide-react';
+import { publisherOf, type CompanyMetric, type CompanyVideo, type LiveIntelItem } from '@mi/contracts';
 import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { ErrorState } from '@/components/states/ErrorState';
@@ -28,9 +28,11 @@ import { useCachedDashboardTab } from '../useCachedTab';
 import { newestFirst, sourceCoverage, statedNote } from '../overviewTruth';
 import { ArticleReader, StoryMeta } from './LiveIntelTab';
 import { SitePreview } from './LiveLandingTab';
-import { VideoStrip } from '@/components/media/StoryMedia';
+import { StoryImage, VideoPlayer, VideoTile } from '@/components/media/StoryMedia';
 import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
 import { OverviewCoverage } from './OverviewCoverage';
+import { overviewParagraph } from '../overviewSummary';
+import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 
 /**
  * Overview: the company in one screen, nothing repeated.
@@ -216,6 +218,22 @@ function FigureTile({ metric, ranking, href, group }: { metric: CompanyMetric; r
  * this company has none yet (the same pass the Live Intel tab would run). */
 const HEADLINES = 3;
 
+/** A story's own stored picture, or the publisher's initial: never fetched here, never made up. */
+export function StoryThumb({ item }: { item: LiveIntelItem }) {
+  const publisher = item.publisher ?? publisherOf(item.url, null) ?? '';
+  const initial = (publisher.replace(/^(?:www\.|the\s+)/i, '').match(/[A-Za-z0-9]/)?.[0] ?? '•').toUpperCase();
+  const monogram = (
+    <span className="grid h-full w-full place-items-center bg-surface-2 font-display text-lg font-semibold text-muted" aria-hidden>{initial}</span>
+  );
+  return (
+    <span className="relative block h-14 w-[76px] shrink-0 overflow-hidden rounded-lg border border-border sm:h-16 sm:w-24">
+      {item.imageUrl
+        ? <StoryImage pageUrl={null} imageUrl={item.imageUrl} publisher={item.publisher} className="absolute inset-0" fallback={monogram} />
+        : monogram}
+    </span>
+  );
+}
+
 function Happening({ companyId, companyName }: { companyId: string; companyName: string }) {
   const href = useTabHref(companyId);
   const intel = useDashboardTab(companyId, 'live_intel');
@@ -232,13 +250,21 @@ function Happening({ companyId, companyName }: { companyId: string; companyName:
       {intel.isPending ? (
         <div className="panel h-[168px] animate-pulse bg-surface-2" aria-label="Finding the latest stories" />
       ) : items.length > 0 ? (
-        // Compact on purpose: Live Intel owns the lead story and picture block.
-        <ul className="panel divide-y divide-border">
+        // Compact on purpose: Live Intel owns the lead story and picture block. Each row shows
+        // the picture research stored with the story; with none, the publisher's initial.
+        <ul className="panel divide-y divide-border overflow-hidden">
           {items.slice(0, HEADLINES).map((item) => (
             <li key={item.id}>
-              <button type="button" onClick={() => setOpenId(item.id)} className="group block w-full space-y-1 px-5 py-3 text-left">
-                <StoryMeta item={item} />
-                <span className="block text-[14.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</span>
+              <button type="button" onClick={() => setOpenId(item.id)}
+                className="group flex w-full items-start gap-4 px-4 py-3.5 text-left transition-colors hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none sm:px-5">
+                <StoryThumb item={item} />
+                <span className="min-w-0 flex-1 space-y-1">
+                  <StoryMeta item={item} />
+                  <span className="block text-[14.5px] font-medium leading-snug text-content group-hover:text-primary-ink">{item.title}</span>
+                  {item.summary && item.summary.trim() !== item.title.trim() && (
+                    <span className="line-clamp-1 block text-[12.5px] leading-snug text-muted max-sm:hidden">{item.summary}</span>
+                  )}
+                </span>
               </button>
             </li>
           ))}
@@ -253,38 +279,103 @@ function Happening({ companyId, companyName }: { companyId: string; companyName:
   );
 }
 
+/**
+ * The company's own videos in one sideways row. Arrow buttons appear only when more are
+ * stored than fit; the row also scrolls by touch, trackpad and keyboard.
+ */
+export function VideoScroller({ videos }: { videos: readonly CompanyVideo[] }) {
+  const ref = useRef<HTMLUListElement>(null);
+  const [playing, setPlaying] = useState<CompanyVideo | null>(null);
+  const [edges, setEdges] = useState({ start: false, end: false });
+  const sync = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const start = el.scrollLeft > 1;
+    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  }, []);
+  useEffect(() => {
+    sync();
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sync, videos.length]);
+  const page = (dir: 1 | -1) => {
+    const el = ref.current;
+    if (!el) return;
+    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollBy({ left: dir * el.clientWidth * 0.9, behavior: reduce ? 'auto' : 'smooth' });
+  };
+  const arrow = 'grid h-8 w-8 place-items-center rounded-full border border-border bg-surface text-content shadow-soft transition-colors hover:bg-surface-2 disabled:opacity-35 disabled:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40';
+  const scrollable = edges.start || edges.end;
+  return (
+    <div>
+      {scrollable && (
+        <div className="mb-2 flex justify-end gap-1.5">
+          <button type="button" className={arrow} onClick={() => page(-1)} disabled={!edges.start} aria-label="Earlier videos"><ChevronLeft className="h-4 w-4" aria-hidden /></button>
+          <button type="button" className={arrow} onClick={() => page(1)} disabled={!edges.end} aria-label="More videos"><ChevronRight className="h-4 w-4" aria-hidden /></button>
+        </div>
+      )}
+      <ul ref={ref} onScroll={sync} aria-label="Company videos"
+        className="-mx-1 flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth px-1 pb-2 motion-reduce:scroll-auto [scrollbar-width:thin]">
+        {videos.map((v) => (
+          <li key={v.id} className="w-[72%] shrink-0 snap-start sm:w-[calc((100%-2rem)/3)] lg:w-[calc((100%-3rem)/4)]">
+            <VideoTile video={v} onPlay={() => setPlaying(v)} />
+          </li>
+        ))}
+      </ul>
+      {playing && <VideoPlayer video={playing} onClose={() => setPlaying(null)} />}
+    </div>
+  );
+}
+
 /** The company's own latest videos, when its site links a YouTube channel. */
 function Watch({ companyId }: { companyId: string }) {
   const videos = useCachedDashboardTab(companyId, 'live_intel').data?.content.videos ?? [];
   if (!videos.length) return null;
   return (
-    <TabSection title="Watch">
-      <VideoStrip videos={videos} />
+    <TabSection title="Watch" hint={videos.length > 1 ? `${videos.length} videos from the company's own channel` : "From the company's own channel"}>
+      <VideoScroller videos={videos} />
     </TabSection>
   );
 }
+
+const TIMELINE_COLUMNS: Record<number, string> = { 1: 'md:grid-cols-1', 2: 'md:grid-cols-2', 3: 'md:grid-cols-3', 4: 'md:grid-cols-4', 5: 'md:grid-cols-5' };
 
 /** Dated milestones, from the History tab when it has been researched. */
 function Milestones({ companyId }: { companyId: string }) {
   const href = useTabHref(companyId);
   const history = useCachedDashboardTab(companyId, 'history').data;
   const timeline = newestFirst(history?.content.timeline ?? []).slice(0, 5);
+  const ordered = [...timeline].reverse();
   if (!timeline.length) return null;
   return (
     <TabSection
       title="Milestones"
       action={<Link to={href('history')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">Full history <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
     >
-      <ol className="panel relative space-y-3 p-5">
-        {timeline.map((e, i) => (
-          <li key={i} className="grid grid-cols-[96px_minmax(0,1fr)] gap-3 text-[13.5px] leading-snug">
-            <span className="tabular-nums text-faint">
-              {e.date}
-              {statedNote(e.date, history?.lastRefreshedAt) && <span className="block text-[11px]">{statedNote(e.date, history?.lastRefreshedAt)}</span>}
-            </span>
-            <span className="text-content">{e.title}</span>
-          </li>
-        ))}
+      {/* A mini timeline, oldest to newest: across on wide screens, down on phones. */}
+      <ol className={cn('panel relative grid gap-y-4 px-5 py-5 max-md:pl-9 md:gap-x-4 md:pt-6', TIMELINE_COLUMNS[ordered.length])} aria-label="Recent milestones, oldest first">
+        <span aria-hidden className="absolute bottom-6 left-[21px] top-6 w-px bg-border md:inset-x-5 md:bottom-auto md:left-5 md:top-[29px] md:h-px md:w-auto" />
+        {ordered.map((e, i) => {
+          const latest = i === ordered.length - 1;
+          const note = statedNote(e.date, history?.lastRefreshedAt);
+          return (
+            <li key={`${e.date}-${i}`} className="relative min-w-0 md:pt-5">
+              <span aria-hidden className={cn(
+                'absolute -left-[19px] top-1 h-2.5 w-2.5 rounded-full border-2 md:left-0 md:top-0',
+                latest ? 'border-primary bg-primary' : 'border-primary/60 bg-surface',
+              )} />
+              <p className="text-[11.5px] font-medium tabular-nums text-muted">
+                {e.date}
+                {note && <span className="ml-1 font-normal text-faint">{note}</span>}
+              </p>
+              <p className="mt-0.5 line-clamp-3 text-[13px] leading-snug text-content" title={e.title}>{e.title}</p>
+            </li>
+          );
+        })}
       </ol>
     </TabSection>
   );
@@ -341,6 +432,14 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   );
   const structured = parsed.sections.length > 0 || parsed.figures.length > 0;
   const takeaways = useMemo(() => extractTakeaways(parsed.sections), [parsed.sections]);
+  const products = useCachedDashboardTab(companyId, 'products_roadmap').data?.content.products;
+  const description = companyQ.data?.oneLiner && companyQ.data.oneLiner !== UNSUPPORTED_COMPANY_SUMMARY ? companyQ.data.oneLiner : null;
+  const paragraph = useMemo(() => overviewParagraph({
+    name: companyQ.data?.name ?? '',
+    description,
+    takeaways,
+    productNames: (products ?? []).map((p) => p.name),
+  }), [companyQ.data?.name, description, takeaways, products]);
   const briefTabs = [
     ...parsed.sections.map((s) => ({ key: s.title, label: sectionLabel(s.title), section: s as { title: string; body: string } | null })),
     ...(parsed.figures.length > 0 ? [{ key: '__figures', label: 'Sourced figures', section: null }] : []),
@@ -406,20 +505,25 @@ export function OverviewTab({ companyId }: { companyId: string }) {
               : <p className="text-sm text-muted">No overview is available from the saved research yet.</p>}
           </article>
         </TabSection>
-      ) : takeaways.length > 0 && (
+      ) : paragraph.sentences.length > 0 && (
         <TabSection title="Summary">
           <div className={cn('grid gap-4', site && 'lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]')}>
-          <dl className="panel divide-y divide-border">
-            {takeaways.slice(0, 4).map((t) => (
-              <div key={t.section} className="grid gap-x-6 gap-y-1 px-5 py-4 sm:grid-cols-[132px_minmax(0,1fr)]">
-                <dt className="pt-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted">{sectionLabel(t.section)}</dt>
-                <dd className="min-w-0">
-                  <p className="text-[14.5px] leading-relaxed text-content">{t.text}</p>
-                  <SourceChips links={t.links} />
-                </dd>
-              </div>
-            ))}
-          </dl>
+          <div className="panel flex min-w-0 flex-col p-5 sm:p-6">
+            <h3 className="text-[11.5px] font-medium text-muted">Who they are</h3>
+            <p className="mt-2 max-w-[68ch] text-[15px] leading-7 text-content">{paragraph.sentences.join(' ')}</p>
+            <SourceChips links={paragraph.links} />
+            <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-4 text-[12px]">
+              {paragraph.products.length > 0 && (
+                <Link to={href('products_roadmap')} className="inline-flex items-center gap-1 text-primary-ink hover:underline">
+                  Products &amp; roadmap <ArrowRight className="h-3 w-3" aria-hidden />
+                </Link>
+              )}
+              <a href="#research-brief" onClick={(e) => { e.preventDefault(); const el = document.getElementById('research-brief') as HTMLDetailsElement | null; if (el) { el.open = true; el.scrollIntoView({ block: 'start' }); } }}
+                className="inline-flex items-center gap-1 text-muted hover:text-primary-ink hover:underline">
+                Read the full brief
+              </a>
+            </div>
+          </div>
           {site && <SiteGlance url={site} />}
           </div>
         </TabSection>
@@ -431,7 +535,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
       <Milestones companyId={companyId} />
 
       {structured && active && (
-        <details className="panel group overflow-hidden">
+        <details id="research-brief" className="panel group scroll-mt-4 overflow-hidden">
           <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 text-[13px] font-medium text-content hover:bg-surface-muted">
             Read the full research brief
             <span className="text-faint transition-transform group-open:rotate-90">›</span>
