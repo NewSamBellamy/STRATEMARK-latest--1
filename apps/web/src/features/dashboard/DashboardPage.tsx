@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useIsFetching } from '@tanstack/react-query';
 import { lookupFoundedYear } from '@/lib/media/wikidataFounded';
-import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, FileText, Globe, MapPin, Search } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, CornerDownLeft, FileText, Globe, MapPin, Search } from 'lucide-react';
 import { DASHBOARD_TABS, DASHBOARD_TAB_LABELS, ownershipLabel, usableCitations, type DashboardTab } from '@mi/contracts';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 import { useCompany, useCompanyMetrics, useReports, useRerunDashboardTab } from '@/hooks/data';
@@ -55,20 +55,26 @@ function ResearchComposer({ companyId, companyName }: { companyId: string; compa
     chat({ kind: 'company', deckId: null, companyId, subject: companyName }, { seed: question });
     setQ('');
   };
+  // A compact ask box beside Share & export and Chats: it widens while in use
+  // instead of holding a full-width bar above the tabs.
   return (
-    <form onSubmit={submit} className="flex min-w-0 flex-1 items-center gap-2">
-      <div className="relative min-w-0 flex-1">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-        <input
-          className="input py-2 pl-8 text-[13px]"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={`Research anything about ${companyName} — grounded & sourced…`}
-          aria-label={`Research anything about ${companyName}`}
-        />
-      </div>
-      <button type="submit" className="btn-ghost shrink-0 px-3 py-2 text-xs" disabled={!q.trim()}>
-        Research
+    <form onSubmit={submit} role="search" aria-label={`Ask about ${companyName}`} className="relative min-w-0 max-sm:basis-full max-lg:flex-1">
+      <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" aria-hidden />
+      <input
+        className="h-8 w-full rounded-lg border border-border bg-surface pl-8 pr-8 text-[12.5px] text-content outline-none transition-[width,border-color] duration-200 placeholder:text-faint focus:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/25 motion-reduce:transition-none lg:w-44 lg:focus:w-72"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder={`Ask about ${companyName}…`}
+        aria-label={`Research anything about ${companyName}`}
+        title="Ask a question. The answer is researched from sources and opens as a chat."
+      />
+      <button
+        type="submit"
+        aria-label="Ask"
+        disabled={!q.trim()}
+        className="absolute right-1 top-1/2 grid h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-content disabled:opacity-0"
+      >
+        <CornerDownLeft className="h-3.5 w-3.5" aria-hidden />
       </button>
     </form>
   );
@@ -83,7 +89,7 @@ function restatesHq(line: string, hq: string | null | undefined): boolean {
 function KeyFacts({ hq, website, founded, filingsUrl }: { hq: string | null; website: string | null; founded: { year: number; from: string } | null; filingsUrl: string | null }) {
   if (!hq && !website && !founded && !filingsUrl) return null;
   return (
-    <ul className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted" aria-label="Key facts">
+    <ul className="mt-1 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[12px] text-muted" aria-label="Key facts">
       {hq && (
         <li className="inline-flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-faint" aria-hidden />{hq}</li>
       )}
@@ -316,11 +322,11 @@ export function DashboardTabNav({
   const qs = fromMarketId ? `?${new URLSearchParams({ deck: fromMarketId, ...(fromCardId ? { card: fromCardId } : {}), ...(fromDeckView ? { view: fromDeckView } : {}) })}` : '';
 
   return (
-    <div className="relative mb-6">
+    <div className="relative mb-5">
     <nav
       ref={navRef}
       onScroll={syncEdges}
-      className="flex items-center gap-1 border-b border-border max-lg:overflow-x-auto max-lg:[scrollbar-width:none] max-lg:[&::-webkit-scrollbar]:hidden"
+      className="flex items-center gap-5 border-b border-border max-lg:overflow-x-auto max-lg:[scrollbar-width:none] max-lg:[&::-webkit-scrollbar]:hidden"
       aria-label="Company dashboard tabs"
     >
       {visibleTabs.map((t) => (
@@ -329,10 +335,11 @@ export function DashboardTabNav({
           to={`/company/${companyId}/dashboard/${t}${qs}`}
           className={({ isActive }) =>
             cn(
-              'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
+              // The underline sits ON the bar's rule (-mb-px), so there is one line, not two.
+              'relative -mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-0.5 pb-2.5 pt-1.5 text-[13px] font-medium transition-colors focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
               isActive
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted hover:text-content',
+                ? 'border-content text-content'
+                : 'border-transparent text-muted hover:border-border hover:text-content',
               assembly.landed.has(t) && 'sm-landed',
             )
           }
@@ -346,11 +353,13 @@ export function DashboardTabNav({
           <button
             type="button"
             onClick={() => setMoreOpen(!moreOpen)}
+            aria-expanded={moreOpen}
+            aria-haspopup="true"
             className={cn(
-              'flex items-center gap-1 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13px] font-medium transition-colors',
+              '-mb-px flex items-center gap-1 whitespace-nowrap border-b-2 px-0.5 pb-2.5 pt-1.5 text-[13px] font-medium transition-colors focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
               activeInOverflow
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted hover:text-content',
+                ? 'border-content text-content'
+                : 'border-transparent text-muted hover:border-border hover:text-content',
             )}
           >
             {activeInOverflow ? `More · ${DASHBOARD_TAB_LABELS[activeTab]}` : 'More'}
@@ -473,7 +482,7 @@ export default function DashboardPage() {
       {/* Breadcrumbs: back to where you came from, and — always — a way home
           to the decks (audit 6:35: "it doesn't take you back to your decks"
           when a card was opened from Saved Cards or a report). */}
-      <div className="mb-3 flex items-center gap-3">
+      <div className="mb-2 flex items-center gap-3">
         <button
           type="button"
           // A real route back to the deck. History fallback only when the
@@ -500,17 +509,19 @@ export default function DashboardPage() {
       <QueryBoundary query={company}>
         {(c) => (
           <>
-            <header className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+            {/* Compact header: name and its one-line description, the facts in one quiet row,
+                and the actions (ask, share, chats) on the right. */}
+            <header className="mb-3 flex flex-wrap items-start gap-x-4 gap-y-3">
               <Logo
                 name={c.name}
                 website={c.websiteUrl}
                 logoUrl={c.logoUrl}
-                className="h-14 w-14 border border-border"
+                className="h-12 w-12 border border-border"
               />
               {/* Phones: this wrapper dissolves so the name sits beside the logo and the details run full width below. */}
-              <div className="contents lg:block lg:min-w-[14rem] lg:flex-1 lg:basis-[60%]">
-                <div className="min-w-0 flex-1 lg:flex-none">
-                <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
+              <div className="contents lg:block lg:min-w-[14rem] lg:flex-1">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 self-center lg:self-auto">
+                <h1 className="font-display text-[22px] font-semibold leading-tight tracking-tight text-content">{c.name}</h1>
                 {ownershipLabel(c.ownership) && (
                   <SafeLink
                     className="chip border-border bg-surface text-muted"
@@ -525,7 +536,10 @@ export default function DashboardPage() {
                 )}
                 </div>
                 <div className="order-1 basis-full lg:order-none">
-                {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && <p className="text-sm text-muted">{headerSubtitle}</p>}
+                {/* One line; the full description is the Summary's first sentence below. */}
+                {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && (
+                  <p className="mt-0.5 line-clamp-2 max-w-3xl text-[13px] leading-snug text-muted lg:line-clamp-1" title={headerSubtitle}>{headerSubtitle}</p>
+                )}
                 <KeyFacts
                   hq={c.hqLocation}
                   website={c.websiteUrl}
@@ -534,7 +548,8 @@ export default function DashboardPage() {
                 />
                 </div>
               </div>
-              <div className="order-2 flex flex-wrap items-center gap-2 lg:order-none lg:shrink-0">
+              <div className="order-2 flex w-full flex-wrap items-center gap-2 lg:order-none lg:w-auto lg:shrink-0">
+              {!readOnly && <ResearchComposer companyId={c.id} companyName={c.name} />}
               {!readOnly && (
                 <ExportMenu
                   className="shrink-0"
@@ -563,13 +578,8 @@ export default function DashboardPage() {
               </div>
             </header>
 
-            {/* Context-aware research row: ask anything + this company's intel file. */}
-            {!readOnly && (
-              <div className="mb-4 flex flex-wrap items-center gap-3">
-                <ResearchComposer companyId={companyId} companyName={c.name} />
-                <IntelFile companyId={companyId} />
-              </div>
-            )}
+            {/* This company's intel file: only when reports exist. */}
+            {!readOnly && <div className="mb-3 empty:hidden"><IntelFile companyId={companyId} /></div>}
 
             {/* 6 visible tabs + overflow dropdown for the rest */}
             <DashboardTabNav
