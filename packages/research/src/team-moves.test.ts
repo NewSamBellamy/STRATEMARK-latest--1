@@ -35,6 +35,13 @@ describe('sourced team moves', () => {
     expect(acceptMoves(company, [{ ...joined, quote: other }], other, citations, now)).toEqual([]);
   });
 
+  it('rejects a move whose date or kind the quote itself does not state', () => {
+    expect(acceptMoves(company, [{ ...joined, date: '2026-03' }], notes, citations, now)).toEqual([]);
+    expect(acceptMoves(company, [{ ...joined, kind: 'departed' }], notes, citations, now)).toEqual([]);
+    expect(acceptMoves(company, [{ ...left, kind: 'joined' }], notes, citations, now)).toEqual([]);
+    expect(acceptMoves(company, [{ ...joined, date: '2026-08-14' }], notes, citations, now)).toHaveLength(1);
+  });
+
   it('checks the 12-month window', () => {
     expect(withinTwelveMonths('2025-10', now)).toBe(true);
     expect(withinTwelveMonths('2025-09-30', now)).toBe(false);
