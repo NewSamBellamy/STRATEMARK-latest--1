@@ -11,6 +11,7 @@
  * non-zero if anything that must be true is not. It spends nothing: no research is run.
  */
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const worker = (process.argv[2] ?? '').replace(/\/+$/, '');
@@ -52,6 +53,20 @@ if (info.hostedResearch === true) {
 }
 console.log(`      daily budget $${info.budgetUsd} in all, $${info.visitorBudgetUsd} a visitor; spent today $${info.spentTodayUsd ?? '?'} by ${info.visitorsToday ?? '?'} visitors`);
 check('the daily budget is a sane number (1 to 1000 dollars)', info.budgetUsd >= 1 && info.budgetUsd <= 1000, String(info.budgetUsd));
+const problems = Array.isArray(info.budgetMisconfigured) ? info.budgetMisconfigured : info.budgetMisconfigured ? [String(info.budgetMisconfigured)] : [];
+check('the Worker reports no budget misconfiguration', problems.length === 0, problems.join('; '));
+// The app's covered amount is read from its source text (this script does not import web code).
+let coveredUsd = null;
+try {
+  const beta = readFileSync(fileURLToPath(new URL('../apps/web/src/lib/beta.ts', import.meta.url)), 'utf8');
+  const match = /COVERED_USAGE_USD\s*=\s*([0-9]+(?:\.[0-9]+)?)/.exec(beta);
+  coveredUsd = match ? Number(match[1]) : null;
+} catch { /* falls back to a positive-number check below */ }
+console.log(`      lifetime allowance per visitor $${info.lifetimeVisitorBudgetUsd}${coveredUsd === null ? '' : `; the app says $${coveredUsd} is covered`}`);
+check('the Worker\'s lifetime allowance matches the covered amount the app promises',
+  typeof info.lifetimeVisitorBudgetUsd === 'number' && info.lifetimeVisitorBudgetUsd > 0
+    && (coveredUsd === null || info.lifetimeVisitorBudgetUsd === coveredUsd),
+  `Worker ${info.lifetimeVisitorBudgetUsd}, app ${coveredUsd ?? 'unread'}`);
 check('one visitor cannot spend the whole day (visitor budget below the daily budget)', info.visitorBudgetUsd > 0 && info.visitorBudgetUsd < info.budgetUsd, String(info.visitorBudgetUsd));
 
 // The dollar meter: a request for a feature it cannot see must be refused before anything is held or sent to Google
