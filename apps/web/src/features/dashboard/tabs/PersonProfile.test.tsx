@@ -18,17 +18,35 @@ const people: OrgNode[] = [
 const company = { id: 'cmp', name: 'Acme', logoUrl: null, websiteUrl: null };
 
 describe('PersonProfile', () => {
-  it('shows the stored resume, marks gaps as Not reported and moves between people', async () => {
+  it('shows only the facts on record, never "Not reported", and moves between people', async () => {
     function Harness() {
       const [id, setId] = useState('a');
       return <PersonProfile people={people} selectedId={id} onSelect={setId} company={company} onAsk={vi.fn()} />;
     }
-    const { user } = renderWithProviders(<Harness />, { repository: makeRepo() });
+    const { user, container } = renderWithProviders(<Harness />, { repository: makeRepo() });
     expect(screen.getByText('2019 to now')).toBeInTheDocument();
-    expect(screen.getAllByText('Not reported').length).toBeGreaterThan(0);
-    await user.click(screen.getByRole('button', { name: /Bo Chen/ }));
+    expect([...container.querySelectorAll('[data-fact]')].map((f) => f.getAttribute('data-fact'))).toEqual(['tenure']);
+    expect(screen.queryByText('Not reported')).not.toBeInTheDocument();
+    expect(screen.getByText('1 of 2')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Next person: Bo Chen' }));
     expect(screen.getByRole('heading', { name: 'Bo Chen' })).toBeInTheDocument();
     expect(screen.queryByText('2019 to now')).not.toBeInTheDocument();
+    // Bo reports to Ada: the fact is a link back to her profile.
+    await user.click(screen.getByRole('button', { name: 'Ada Lovelace' }));
+    expect(screen.getByRole('heading', { name: 'Ada Lovelace' })).toBeInTheDocument();
+  });
+
+  it('says once that only name and role are on record when nothing else is', () => {
+    const bare: OrgNode[] = [{ id: 'z', name: 'Zed Doe', role: 'Head of Sales', group: 'other', parentId: null, bio: '' }];
+    const { container } = renderWithProviders(
+      <PersonProfile people={bare} selectedId="z" onSelect={vi.fn()} company={company} onAsk={vi.fn()} />,
+      { repository: makeRepo() },
+    );
+    expect(screen.getByText('Only name and role are on record.')).toBeInTheDocument();
+    expect(container.querySelector('[data-fact]')).toBeNull();
+    expect(screen.queryByText('Not reported')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Download report \(PDF\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Sources' })).toBeInTheDocument();
   });
 
   it('runs deeper research only when asked and shows its sources', async () => {
@@ -74,7 +92,7 @@ describe('PersonProfile', () => {
       { repository: makeRepo() },
     );
     expect(screen.getByText(/No source link/)).toBeInTheDocument();
-    expect(screen.getByText(/\(source 1, listed below\)/)).toBeInTheDocument();
+    expect(screen.getAllByText(/\(source 1, listed below\)/).length).toBeGreaterThan(0);
   });
 
   it('hands the person to Ask when asked', async () => {
