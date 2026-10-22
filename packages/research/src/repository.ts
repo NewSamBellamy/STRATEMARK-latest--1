@@ -138,6 +138,7 @@ import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvi
 import { searchEvidenceCorpus } from './retrieval';
 import { HUNT_STALE_FIGURES, companyDomainOf, figurePublisher } from './metric-assessment';
 import { resolveWrite } from './compare-observations';
+import { REHUNT_COOLDOWN_DAYS, orderFiguresNewestFirst, rehuntDue } from './recency-rank';
 import { assessFigure, type AssessContext } from './source-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
@@ -321,6 +322,8 @@ export interface RepoSnapshot {
   rejectedMoveIds?: Record<string, string>;
   /** companyId → when the user last refreshed a deck holding it: a twin's tabs from before then are never lent. */
   tabsRefreshedAt?: Record<string, string>;
+  /** companyId → metric type → when a deck refresh last re-hunted that figure (REHUNT_COOLDOWN_DAYS). */
+  staleRehuntAt?: Record<string, Partial<Record<MetricType, string>>>;
   /** marketId → cached whitespace analysis. */
   opportunity: Record<
     string,
@@ -537,7 +540,7 @@ export interface GeminiRepositoryOptions extends GeminiClientConfig {
   catalogMax?: number;
   catalogPasses?: number;
   originalSources?: OriginalSourceServices;
-  /** Tests only: overrides HUNT_STALE_FIGURES (owner decision D6, default off). */
+  /** Tests only: overrides HUNT_STALE_FIGURES (default on since 2026-10-22). */
   huntStaleFigures?: boolean;
   /** The clock for figure ages and the verified window. Tests inject a fixed one; production reads the system clock. */
   now?: () => Date;
@@ -642,6 +645,8 @@ type HuntPlan = {
   company: Company; profile: ReturnType<typeof classifyMarketProfile>; softTypes: MetricType[];
   structuredFilled: MetricType[]; revisions: Map<MetricType, string>; mine: () => CompanyMetric[];
   escalation: number; priorLeads: Citation[]; needsAnnualFiling: boolean; priorTargets: Citation[];
+  /** Types this hunt targets because a refresh found their figure due a fresh look. */
+  staleTypes: ReadonlySet<MetricType>;
 };
 
 /** The part of a batched answer under this company's own heading: from a
@@ -1373,6 +1378,9 @@ export class GeminiRepository implements MarketIntelRepository {
       tabsRefreshedAt: prev.tabsRefreshedAt
         ? Object.fromEntries(Object.entries(prev.tabsRefreshedAt).filter(([companyId]) => !orphaned.has(companyId)))
         : prev.tabsRefreshedAt,
+      staleRehuntAt: prev.staleRehuntAt
+        ? Object.fromEntries(Object.entries(prev.staleRehuntAt).filter(([companyId]) => !orphaned.has(companyId)))
+        : prev.staleRehuntAt,
       researchJobs: prev.researchJobs.filter((job) => !allJobIds.has(job.id)),
       briefings: prev.briefings.filter((b) => b.marketId !== marketId && !deckIds.has(b.deckId)),
       opportunity,
@@ -1401,7 +1409,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (prev.productBriefs === undefined) delete next.productBriefs;
     if (prev.signalBriefs === undefined) delete next.signalBriefs;
     if (prev.signalRest === undefined) delete next.signalRest;
-    for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt'] as const) if (prev[key] === undefined) delete next[key];
+    for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt', 'staleRehuntAt'] as const) if (prev[key] === undefined) delete next[key];
     this.snap = next;
     try {
       await this.persist();
@@ -2498,12 +2506,19 @@ export class GeminiRepository implements MarketIntelRepository {
     //    companies, one at a time, one hunt each (a hunt is one grounded pass),
     //    once per refresh. A newer figure replaces the old only by the
     //    latest-wins rule; otherwise the old one stays, labelled.
-    //    OFF by default (HUNT_STALE_FIGURES, owner decision D6): it adds model calls.
+    //    HUNT_STALE_FIGURES (on since 2026-10-22; was owner decision D6 off): it adds model calls.
+    //    Most out-of-date first, so company 9 and later get their turn: a figure re-hunted
+    //    once is not paid for again for REHUNT_COOLDOWN_DAYS, whoever triggers the refresh
+    //    (a manual refresh or the cadence auto-refresh), so the cap moves down the deck.
+    const due = this.huntStaleFigures
+      ? [...deckCompanyIds].map((companyId) => ({ companyId, ...this.rehuntCandidates(companyId) }))
+        .filter((row) => row.types.size > 0)
+        .sort((a, b) => b.staleness - a.staleness)
+      : [];
     let looked = 0;
-    for (const companyId of this.huntStaleFigures ? deckCompanyIds : []) {
+    for (const { companyId } of due) {
       if (looked >= REFRESH_STALE_MAX_COMPANIES) break;
       try {
-        if (this.staleTypesOf(companyId).size === 0) continue;
         looked += 1;
         await this.huntCompanyMetrics(companyId, { refreshStale: true });
       } catch {
@@ -2936,16 +2951,40 @@ export class GeminiRepository implements MarketIntelRepository {
     });
   }
 
-  /** The metric types whose stored figure (current revision, assessed now) has stale or undated evidence. */
+  /** The metric types whose stored figure (current revision, assessed now) is due a fresh look: a fast-moving
+   * figure that is stale, undated, past its fresh window, or older than its re-hunt window (recency-rank.ts),
+   * and that no refresh re-hunted in the last REHUNT_COOLDOWN_DAYS. Human figures are never targets. */
   private staleTypesOf(companyId: string): Set<MetricType> {
+    return this.rehuntCandidates(companyId).types;
+  }
+
+  /** staleTypesOf, plus how out of date the company's oldest due figure is (undated counts as oldest). */
+  private rehuntCandidates(companyId: string): { types: Set<MetricType>; staleness: number } {
     const ctx = this.assessContext(companyId);
+    const nowMs = ctx.now.getTime();
     const rows = this.snap.metrics.filter((m) => m.companyId === companyId);
-    return new Set(METRIC_TYPES.filter((t) => {
+    const last = this.snap.staleRehuntAt?.[companyId] ?? {};
+    const types = new Set<MetricType>();
+    let staleness = -1;
+    for (const t of METRIC_TYPES) {
       const revision = currentMetricRevision(rows, companyId, t);
-      if (!revision || revision.ambiguous) return false;
-      const state = assessFigure(revision.metric, ctx)?.currency.state;
-      return state === 'stale' || state === 'undated';
-    }));
+      if (!revision || revision.ambiguous || revision.metric.confidence === 'user_verified') continue;
+      const currency = assessFigure(revision.metric, ctx)?.currency;
+      if (!rehuntDue(t, currency)) continue;
+      const at = Date.parse(last[t] ?? '');
+      if (Number.isFinite(at) && nowMs - at < REHUNT_COOLDOWN_DAYS * 86_400_000) continue;
+      types.add(t);
+      staleness = Math.max(staleness, currency?.ageDays ?? Number.MAX_SAFE_INTEGER);
+    }
+    return { types, staleness };
+  }
+
+  /** Remember that a refresh re-hunted these figures, so the next refresh does not pay for them again. */
+  private markRehunted(companyId: string, types: Iterable<MetricType>): void {
+    const at = this.clock().toISOString();
+    const mine = { ...this.snap.staleRehuntAt?.[companyId] };
+    for (const t of types) mine[t] = at;
+    this.snap.staleRehuntAt = { ...this.snap.staleRehuntAt, [companyId]: mine };
   }
 
   /** The facts as the evidence supports them, before source binding hides or relinks any. */
@@ -5077,6 +5116,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const profileTypes = profileHuntTypes(profile);
     // The dashboard refresh also re-hunts figures whose evidence is stale or undated.
     const staleTypes = options?.refreshStale && this.huntStaleFigures ? this.staleTypesOf(companyId) : new Set<MetricType>();
+    if (staleTypes.size) this.markRehunted(companyId, staleTypes);
     const softTypes: MetricType[] = profileTypes.filter((t) => {
       const current = currentMetricRevision(mine(), companyId, t);
       if (current?.ambiguous) return false;
@@ -5144,7 +5184,8 @@ export class GeminiRepository implements MarketIntelRepository {
           .map(receipt => ({ url: receipt.finalUrl!, title: 'Previously retrieved original (recheck required)' }))) : [];
     const needsAnnualFiling = softTypes.includes('arr') || softTypes.includes('employees');
     const priorTargets = selectOriginalSourceCitations(priorLeads, company.websiteUrl, needsAnnualFiling, this.originalSources?.supports);
-    return { company, profile, softTypes, structuredFilled, revisions, mine, escalation, priorLeads, needsAnnualFiling, priorTargets };
+    return { company, profile, softTypes, structuredFilled, revisions, mine, escalation, priorLeads, needsAnnualFiling, priorTargets,
+      staleTypes: new Set(softTypes.filter((t) => staleTypes.has(t))) };
   }
 
   private async huntCompanyMetricsOnce(companyId: string, options?: HuntMetricsOptions): Promise<HuntMetricsResult> {
@@ -5167,7 +5208,7 @@ export class GeminiRepository implements MarketIntelRepository {
       missing: softTypes, forceRefresh: true,
       citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...g.citations, ...priorLeads], company.websiteUrl,
         needsAnnualFiling, this.originalSources.supports, g.text, 4) }) : [];
-    return this.finishHunt(company, { softTypes, structuredFilled, revisions, mine, g, leads, originals });
+    return this.finishHunt(company, { softTypes, structuredFilled, revisions, mine, g, leads, originals, staleTypes: plan.staleTypes });
   }
 
   /**
@@ -5233,7 +5274,7 @@ export class GeminiRepository implements MarketIntelRepository {
             citations: selectOriginalSourceCitations([...(leads?.citations ?? []), ...sectionCitations(g, section), ...priorLeads],
               company.websiteUrl, needsAnnualFiling, this.originalSources!.supports, section, 4) }).catch(() => []);
           const outcome = await this.finishHunt(company, { softTypes, structuredFilled: plan.structuredFilled,
-            revisions: plan.revisions, mine: plan.mine, g, leads, originals, peers, notes: section || g.text });
+            revisions: plan.revisions, mine: plan.mine, g, leads, originals, peers, notes: section || g.text, staleTypes: plan.staleTypes });
           void this.bindReportedSources(company.id);
           return outcome;
         });
@@ -5311,6 +5352,8 @@ export class GeminiRepository implements MarketIntelRepository {
     peers?: readonly string[];
     /** Notes for extraction when only part of `g.text` is about this company. */
     notes?: string;
+    /** Types a refresh re-hunts because their held figure is due a fresh look. */
+    staleTypes?: ReadonlySet<MetricType>;
   }) {
     const { softTypes, structuredFilled, revisions, mine, g, leads, originals } = input;
     const companyId = company.id;
@@ -5358,6 +5401,9 @@ export class GeminiRepository implements MarketIntelRepository {
       out.figures = [...out.figures.filter(fig => fig.metricType !== 'arr'), { metricType: 'arr', value: annual.value,
         passageSupport: annual.passageSupport, methodNote: 'SEC filing-reported annual revenue, not ARR.' }];
     }
+    // The first gate-passing candidate of a metric is the one written (the revision guard stops
+    // the rest), so try the newest credible dated report first, never just the model's first pick.
+    out.figures = orderFiguresNewestFirst(out.figures, company.websiteUrl, this.clock().getTime());
     const filledTypes: MetricType[] = [];
 
     // A legacy label is not accepted evidence. Recheck the public projection
@@ -5384,7 +5430,9 @@ export class GeminiRepository implements MarketIntelRepository {
         // verification may have hardened this row while the hunt was in flight.
         // A verified row that has gone stale still counts as verified here (it only reads as
         // estimated on display), so the hunt writes exactly where it always did.
-        if (metric?.confidence === 'user_verified' || (metric?.confidence === 'verified' &&
+        // A refresh that re-hunts an out-of-date verified figure may write over it; latest wins
+        // (settleAccepted) then keeps whichever is newer and at least as strong.
+        if (metric?.confidence === 'user_verified' || (metric?.confidence === 'verified' && !input.staleTypes?.has(fig.metricType) &&
           (acceptedAtWrite === null || acceptedAtWrite.get(fig.metricType)?.confidence === 'verified'))) continue;
         if (!metric) {
           metric = {

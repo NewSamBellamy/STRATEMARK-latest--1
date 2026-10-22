@@ -258,6 +258,9 @@ export function relayWebSearch(options: { endpoint: string; provider: SearchProv
 // pages that list bare, undated numbers the passage gate rightly rejects.
 // News mode (measured live): dated articles and press releases instead of
 // aggregator and social pages. Filing-style queries stay on the web index.
+// Neither a year nor "latest" goes in a query (PLAN-CRAAP section 0, measured live: both pull
+// in other companies and undated aggregators). Recency comes from the provider's own date
+// window (sinceDays) and newest-first ordering; recency-rank.ts then prefers the newest figure.
 const QUERY_FAMILIES: ReadonlyArray<{ types: readonly string[]; terms: string; news: boolean }> = [
   { types: ['valuation', 'funding_total', 'last_round', 'market_cap'], terms: 'raises funding round valuation', news: true },
   { types: ['arr', 'revenue'], terms: 'revenue ARR million announced', news: true },

@@ -7,11 +7,15 @@ import type { CompanyMetric } from '@mi/contracts';
 import { hostOf } from './registries/shared';
 
 /**
- * Re-hunting stale or undated figures costs model calls (about two per affected
- * company), so it is OFF (owner decision D6). With it off, hunt targets and model-call
- * counts are identical to before any currency work.
+ * A deck refresh re-hunts figures that are stale, undated or past their re-hunt window
+ * (recency-rank.ts). It costs model calls (about two per affected company, at most
+ * REFRESH_STALE_MAX_COMPANIES per refresh: a manual refresh, or the cadence auto-refresh,
+ * which never runs for hosted visitors spending the covered allowance).
+ * Owner decision D6 had this OFF; turned ON 2026-10-22 after the owner's audit found
+ * year-old valuations that a refresh never looked past. Ordinary hunts are unchanged:
+ * only `refreshStale` hunts read it.
  */
-export const HUNT_STALE_FIGURES: boolean = false;
+export const HUNT_STALE_FIGURES: boolean = true;
 
 /** Who published the figure's evidence: the first citation's publisher, else the host of its source. Null when unknown. */
 export function figurePublisher(metric: Pick<CompanyMetric, 'citations' | 'source'>): string | null {
