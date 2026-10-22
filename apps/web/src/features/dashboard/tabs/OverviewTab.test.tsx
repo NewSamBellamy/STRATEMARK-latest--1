@@ -54,6 +54,15 @@ describe('OverviewTab executive summary', () => {
     const check = within(tile).getByLabelText('Source check for Employees');
     expect(check.querySelector('summary')).toHaveTextContent(`Source check: As of Mar 2025 (${word}`);
   });
+  it('leads with the summary, then the key figures', async () => {
+    render([{ ...seed, metricType: 'employees', value: 250, confidence: 'verified', source: 'https://sec.gov/x',
+      citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' }],
+      passageSupport: null, reportedSupport: null, capturedAt: '2026-05-04T00:00:00Z' }]);
+    const summary = await screen.findByRole('region', { name: 'Summary' });
+    const figures = await screen.findByRole('region', { name: 'Key figures' });
+    expect(summary.compareDocumentPosition(figures) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('shows no Source check for a figure that was never assessed', async () => {
     render([{ ...seed, metricType: 'employees', value: 250, confidence: 'verified', source: 'https://sec.gov/x',
       citations: [{ title: 'SEC filing', url: 'https://sec.gov/x', credibility: 'primary' }],

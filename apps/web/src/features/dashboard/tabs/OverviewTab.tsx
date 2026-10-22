@@ -446,45 +446,9 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   ];
   const active = briefTabs[Math.min(briefIdx, Math.max(0, briefTabs.length - 1))];
 
-  return (
-    <div className="cascade space-y-8">
-      <TabSection
-        title="Key figures"
-        action={<Link to={href('metrics')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
-      >
-        {metricsQ.isPending || !figures ? (
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="bg-surface px-5 py-4" aria-hidden>
-                <div className="h-2.5 w-16 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
-                <div className="mt-3 h-7 w-24 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
-                <div className="mt-4 h-2.5 w-20 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <>
-          <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border shadow-soft', ORPHAN_SPAN, KPI_COLUMNS[Math.min(keyFigures.length, 6)])}>
-            {keyFigures.map((metric) => {
-              const ranking = isKnown(metric) && peerState.status === 'ready'
-                ? rankInDeck(companyId, metric.metricType, peerState.peers) : null;
-              return <FigureTile key={metric.metricType} metric={metric} ranking={ranking} group={caveats}
-                href={href('metrics', { metric: metric.metricType })} />;
-            })}
-          </div>
-          {(coverage || caveats.line) && (
-            <p className="mt-2 text-[11.5px] text-faint">{[coverage, caveats.line].filter(Boolean).join(' · ')}</p>
-          )}
-          </>
-        )}
-      </TabSection>
-
-      {figures && (
-        <OverviewCoverage companyId={companyId} figuresFound={figures.known.length} figureSlots={figures.all.length} />
-      )}
-
-      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
-
+  // The summary and the company's own site lead the tab; figures follow.
+  const summarySection = (
+    <>
       {query.isPending ? (
         <HydratingPanel label="Overview" variant="compact" />
       ) : query.isError ? (
@@ -528,6 +492,49 @@ export function OverviewTab({ companyId }: { companyId: string }) {
           </div>
         </TabSection>
       )}
+    </>
+  );
+
+  return (
+    <div className="cascade space-y-8">
+      {summarySection}
+
+      <TabSection
+        title="Key figures"
+        action={<Link to={href('metrics')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
+      >
+        {metricsQ.isPending || !figures ? (
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="bg-surface px-5 py-4" aria-hidden>
+                <div className="h-2.5 w-16 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
+                <div className="mt-3 h-7 w-24 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
+                <div className="mt-4 h-2.5 w-20 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
+          <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border shadow-soft', ORPHAN_SPAN, KPI_COLUMNS[Math.min(keyFigures.length, 6)])}>
+            {keyFigures.map((metric) => {
+              const ranking = isKnown(metric) && peerState.status === 'ready'
+                ? rankInDeck(companyId, metric.metricType, peerState.peers) : null;
+              return <FigureTile key={metric.metricType} metric={metric} ranking={ranking} group={caveats}
+                href={href('metrics', { metric: metric.metricType })} />;
+            })}
+          </div>
+          {(coverage || caveats.line) && (
+            <p className="mt-2 text-[11.5px] text-faint">{[coverage, caveats.line].filter(Boolean).join(' · ')}</p>
+          )}
+          </>
+        )}
+      </TabSection>
+
+      {figures && (
+        <OverviewCoverage companyId={companyId} figuresFound={figures.known.length} figureSlots={figures.all.length} />
+      )}
+
+      <Happening companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
 
       <OverviewSnapshot companyId={companyId} companyName={companyQ.data?.name ?? 'this company'} />
       <MarketPeers companyId={companyId} />
