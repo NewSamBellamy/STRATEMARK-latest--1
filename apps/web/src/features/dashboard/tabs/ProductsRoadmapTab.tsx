@@ -234,8 +234,10 @@ function LineupSummary({ products, roadmap, relationships, statedOn }: {
         {stats.map((stat) => (
           <div key={stat.label} className="bg-surface px-4 py-3">
             <dt className="text-[11px] font-medium text-muted">{stat.label}</dt>
-            <dd className="mt-1 text-2xl font-semibold tabular-nums text-content">{stat.value}</dd>
-            {stat.note && <p className="mt-0.5 text-[11px] text-faint">{stat.note}</p>}
+            <dd className="mt-1 text-2xl font-semibold tabular-nums text-content">
+              {stat.value > 0 ? stat.value : <span className="text-base font-medium text-faint">None found</span>}
+              {stat.note && <span className="mt-0.5 block text-[11px] font-normal text-faint">{stat.note}</span>}
+            </dd>
           </div>
         ))}
       </dl>

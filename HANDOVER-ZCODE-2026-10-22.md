@@ -270,3 +270,22 @@ Before the owner sends his audit, check that Z Code can see and reason about the
 When it passes these, it has the codebase. Then send the audit.
 
 If `graphify-out/` exists in the repo, Z Code can query the graph first for codebase questions: `graphify query "<question>"`, `graphify path "<A>" "<B>"`, `graphify explain "<concept>"`. After code changes, run `graphify update .` to keep the graph current.
+
+---
+
+## 12. Update: beta-final pass in Z Code (same day)
+
+The three local commits from section 1 are now on origin. On top of them, in order:
+
+- Overview: summary and the company's site capture lead the tab; key figures follow.
+- Card frame: primary to secondary brand gradient from the logo colours, falling back to the researched brand theme when the logo blocks pixel reads.
+- Chat: fast model by default, stronger model for hard questions (`chatTier`), answers stream when the transport allows.
+- Drop in your research: panel above "Open full company dashboard", `addResearchDocument` capability, quote-verified digest, "Apply to card" through the human override, "From your research" on the Overview.
+- Signal cards: hero picture from the finding's own source, credited.
+- Products & Roadmap: lineup summary, official-page pictures, research-now action.
+
+Gate on the final tip: `pnpm check` exit 0; e2e 78 passed, 1 skipped, 0 failed after one fix (the lineup summary first used a `<dl>` with a `<p>` child, which the a11y spec caught).
+
+Read `docs/NEXT-SPRINT-OWNER-FEEDBACK-2026-10-22.md` for the owner's feedback, what changed, and what is still open (thin tabs and empty dashboards need live runs on the owner's key; Deep Research plan and cost; streaming through the hosted Worker).
+
+Not verified in a live run with a real Gemini key: chat streaming, the document digest on a real model, signal-card hero pictures on real sources. All three have unit tests with fakes; the owner should try each once.

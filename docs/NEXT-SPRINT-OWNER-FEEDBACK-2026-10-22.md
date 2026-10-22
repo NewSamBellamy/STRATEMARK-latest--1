@@ -9,6 +9,24 @@ Source: Shannon's first hands-on pass after the Z Code handover. Each item below
 | Overview: summary and landing page first | `OverviewTab.tsx` now renders the Summary (with the company-site capture beside it) above Key figures. A test pins the order. |
 | Card outline from primary and secondary brand colours | The frame used to come only from pixels read out of the logo. A logo that blocks pixel reads, or a palette that never resolves, left the card with no gradient even though research had stored the company's brand primary and secondary. The frame now uses the logo colours when it has them, else the researched brand theme (primary to secondary), and a single logo colour takes the researched secondary as its second tone. Neutral border remains only when there is no brand evidence at all. `.card-grid` is untouched. Needs a look in the running app on a few real decks (Together AI is the known pixel-blocked logo). |
 
+## Also done (second pass, same day, all local commits on `beta/night-tip`)
+
+| Item | Result |
+|---|---|
+| Chat speed | Most questions now answer on a fast model (`gemini-flash-latest`, label `chat:quick`). Long, analytical, comparing or forced-deep questions keep the stronger `gemini-3.1-pro-preview` (`chatTier` in `chat-route.ts`). The answer streams into the panel as it is written when the transport allows it (a key used straight against Google). The hosted Worker and the dev bridge do not stream yet: they still return the whole answer, but on the faster model. |
+| Drop in your research | New "Drop in your research" panel above "Open full company dashboard" in the card reader: file (PDF, markdown, text, HTML), pasted text, or a https link. The text is kept as the user's own evidence (searchable by chat and Research & Sources) and read once into a digest. Every finding and figure must carry a quote that appears word for word in the document, and a figure's quote must state its value, or it is dropped. Figures are proposals: "Apply to card" calls the existing human override, so only a person makes a figure user-verified, with the quote as its source. The Overview shows a "From your research" section with the digest, labelled as provided by the user. Capability: `addResearchDocument` (contracts, `GeminiRepository`). Not yet on the desktop IPC path or the cloud Sentinel path; the panel hides itself there. |
+| Signal card hero images | Vice, barrier, culture and insight cards now wear the picture their own best source published (og:image, through the existing hosted image proxy), credited to the publisher, with the default art as the fallback. Company-specific cards never take a picture that names another company. Nothing is generated. No contract change. |
+| Products & Roadmap | A "Lineup at a glance" strip (counts only from retained research), the official product page's own picture on product cards (hidden when the page publishes none), and a "Research products and roadmap now" button in the empty state (runs only when clicked). |
+
+## Still open
+
+- **Thin tabs and empty dashboards.** This is the research pipeline's depth and speed, not a screen problem. It needs live runs on the owner's key to tune and was not changed blind. The drop-in intake and a future Deep Research "Deep dive" are the depth levers.
+- **Deep Research.** Plan is in this document; one comparison run (about $1 to $3) is the next step before building it.
+- **Chat streaming through the hosted Worker.** The Worker's budget accounting reads the JSON usage block of a normal response; streaming needs a `streamGenerateContent` route that settles the budget from the final SSE chunk. Owner deploys the Worker, so this is queued, not done.
+- **Drop-in on desktop (IPC) and cloud engines.**
+- **Video drop-in.** Transcript only; the panel says so plainly.
+- **Card back.** Owner is working on it in Codex.
+
 ## Not touched on purpose
 
 - **Card back design.** Shannon is working on it in Codex.
