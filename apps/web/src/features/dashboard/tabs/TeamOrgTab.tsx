@@ -1,22 +1,22 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, FileText, Loader2, SlidersHorizontal } from 'lucide-react';
+import { ChevronRight, FileText, Loader2 } from 'lucide-react';
 import type { OrgNode } from '@mi/contracts';
 import { useCompany, useDashboardTab, useGenerateReport } from '@/hooks/data';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
-import { Modal } from '@/components/ui/Modal';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/Modal';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { safeHttpUrl } from '@/lib/sourceHref';
-import { LeaderGrid, WikiAvatar } from './LeaderGrid';
+import { WikiAvatar } from './LeaderGrid';
 import type { ProfileCompany } from './ProfileCard';
-import { BoardSkeleton, OrgBoard, useIsNarrow, type BoardColumnKey } from './OrgBoard';
+import { BoardSkeleton, OrgBoard } from './OrgBoard';
 import { PersonProfile } from './PersonProfile';
 import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
-import { EmptyNote, FilterChip, SearchBox, SectionHeader, SourceLink } from './TabKit';
-import { COLUMN_COLOR, COLUMN_LABEL, GROUP_COLOR, GROUP_LABEL, columnOf, recentMove, type ColumnKey } from './orgRank';
-import { footnoteMark, reported, statLines } from './personFacts';
+import { EmptyNote, SearchBox, SectionHeader, SourceLink } from './TabKit';
+import { COLUMN_LABEL, COLUMN_ORDER, columnOf, recentMove, type ColumnKey } from './orgRank';
+import { footnoteMark, moveNote, reported, statLines } from './personFacts';
 import { boardOnly, buildOrgTree, filterOrgTree, matchesQuery, type OrgTreeNode } from './tabHelpers';
 
 const UNKNOWN = 'Unknown';
@@ -65,25 +65,19 @@ function OrgRow({
           className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left"
           onClick={() => onOpen(p.id)}
           title={p.bio || `${p.name} — open profile`}
-          aria-label={`${p.name}, ${p.role || 'role not reported'} — open profile`}
+          aria-label={`${p.name}${p.role ? `, ${p.role}` : ''}. Open profile`}
         >
           <WikiAvatar name={p.name} companyName={companyName} size="sm" />
           <span className="min-w-0">
             <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="break-words text-sm font-semibold text-content">{p.name}</span>
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ background: GROUP_COLOR[p.group] }}
-                title={GROUP_LABEL[p.group]}
-                aria-hidden
-              />
               {ribbon && (
-                <span className="rounded bg-negative/10 px-1.5 py-px text-[9.5px] font-bold uppercase tracking-wide text-negative">
-                  {ribbon.label}
+                <span className="rounded-full border border-primary/30 px-2 py-px text-[10.5px] font-medium text-primary-ink">
+                  {moveNote(p)}
                 </span>
               )}
             </span>
-            <span className="block break-words text-xs text-muted">{p.role || 'Role not reported'}</span>
+            {p.role && <span className="block break-words text-xs text-muted">{p.role}</span>}
             {stats.length > 0 && (
               <span className="mt-0.5 block break-words text-[11px] text-faint">
                 {stats.map((s, i) => (
@@ -131,25 +125,58 @@ function OrgRow({
   );
 }
 
-type View = 'board' | 'list';
+type View = 'people' | 'lines';
 const VIEW_KEY = 'mi.teamOrgView';
-/** The old "chart" view is the board now; only an explicit "list" stays a list. */
+/** Stored under the old names ("board" / "list") so a choice made before the redesign carries over; "chart" was the board too. */
 function readView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'board';
+    return localStorage.getItem(VIEW_KEY) === 'list' ? 'lines' : 'people';
   } catch {
-    return 'board';
+    return 'people';
   }
 }
 
-const FUNCTION_ORDER: ColumnKey[] = ['founders', 'exec', 'ai', 'product_design', 'other'];
+type Section = 'all' | ColumnKey;
+
+/** One segmented control for the sections that have anyone in them. On a phone it scrolls sideways inside itself. */
+function SectionPicker({
+  options,
+  value,
+  onChange,
+}: {
+  options: Array<{ key: Section; label: string; count: number }>;
+  value: Section;
+  onChange: (key: Section) => void;
+}) {
+  return (
+    <div className="-mx-1 max-w-full overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+      <div className="inline-flex whitespace-nowrap rounded-lg border border-border bg-surface-2/60 p-0.5" role="group" aria-label="Show section">
+        {options.map((o) => (
+          <button
+            key={o.key}
+            type="button"
+            aria-pressed={value === o.key}
+            onClick={() => onChange(o.key)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[12.5px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary',
+              value === o.key ? 'bg-surface text-content shadow-card' : 'text-muted hover:text-content',
+            )}
+          >
+            {o.label}
+            <span className={cn('tabular-nums', value === o.key ? 'text-muted' : 'text-faint')}>{o.count}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function TeamOrgTab({ companyId }: { companyId: string }) {
   const [view, setViewState] = useState<View>(readView);
   const setView = (v: View) => {
     setViewState(v);
     try {
-      localStorage.setItem(VIEW_KEY, v);
+      localStorage.setItem(VIEW_KEY, v === 'lines' ? 'list' : 'board');
     } catch {
       /* storage unavailable: the choice just will not persist */
     }
@@ -168,13 +195,9 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
     brandTheme: companyQ?.brandTheme ?? null,
   }), [companyId, name, companyQ?.logoUrl, companyQ?.websiteUrl, companyQ?.brandTheme]);
   const { chat } = useDeepDive();
-  const narrow = useIsNarrow();
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [functions, setFunctions] = useState<ReadonlySet<BoardColumnKey>>(new Set());
-  const [moving, setMoving] = useState(false);
-  const [hasSource, setHasSource] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [section, setSection] = useState<Section>('all');
   const [listLimit, setListLimit] = useState(LIST_PAGE);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const orgReport = useGenerateReport();
@@ -183,46 +206,35 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
   const nodes = query.data?.content.nodes;
   const people = useMemo(() => nodes ?? [], [nodes]);
   const forest = useMemo(() => buildOrgTree(people), [people]);
-  // A director who is already a card on the team is shown there, not a third time in the board column.
+  // A director who is already on the team list is shown there, not a second time.
   const boardMembers = useMemo(() => boardOnly(governanceBoard, people), [governanceBoard, people]);
-  // The reporting lines that survived tolerant parsing (a missing manager or a cycle is no line).
-  const parentOf = useMemo(() => {
-    const map = new Map<string, string>();
-    const walk = (n: OrgTreeNode) => {
-      for (const child of n.children) {
-        map.set(child.person.id, n.person.id);
-        walk(child);
-      }
-    };
-    forest.forEach(walk);
+  // Reporting lines that survived tolerant parsing (a missing manager or a cycle is no line).
+  const hasLines = useMemo(() => forest.some((root) => root.children.length > 0), [forest]);
+  const counts = useMemo(() => {
+    const map = new Map<ColumnKey, number>();
+    for (const p of people) map.set(columnOf(p), (map.get(columnOf(p)) ?? 0) + 1);
+    if (boardMembers.length) map.set('board', (map.get('board') ?? 0) + boardMembers.length);
     return map;
-  }, [forest]);
-  const columnCounts = useMemo(() => {
-    const counts = new Map<ColumnKey, number>();
-    for (const p of people) counts.set(columnOf(p), (counts.get(columnOf(p)) ?? 0) + 1);
-    return counts;
-  }, [people]);
-  const movingCount = useMemo(() => people.filter((p) => recentMove(p) !== null).length, [people]);
+  }, [people, boardMembers]);
   const withSource = useMemo(() => people.filter((p) => safeHttpUrl(p.sourceUrl)).length, [people]);
+  // The reporting-lines view earns its place only when research sourced a line.
+  const shownView: View = hasLines ? view : 'people';
 
   const searching = search.trim().length > 0;
-  const activeFilters = functions.size + (moving ? 1 : 0) + (hasSource ? 1 : 0);
-  const filtering = searching || activeFilters > 0;
+  const filtering = searching || section !== 'all';
   const keep = useMemo(() => (p: OrgNode) =>
-    (functions.size === 0 || functions.has(columnOf(p))) &&
-    (!moving || recentMove(p) !== null) &&
-    (!hasSource || Boolean(safeHttpUrl(p.sourceUrl))) &&
+    (section === 'all' || columnOf(p) === section) &&
     matchesQuery(`${p.name} ${p.role} ${p.priorCompany ?? ''} ${p.notableProject ?? ''}`, search),
-  [functions, moving, hasSource, search]);
+  [section, search]);
   const filtered = useMemo(() => (filtering ? people.filter(keep) : people), [people, filtering, keep]);
   const visible = useMemo(() => (filtering ? filterOrgTree(forest, keep) : forest), [forest, filtering, keep]);
-  // Board names carry no per-person source or move: the toggles for those hide them, the search matches them.
+  // Directors from the governance research carry a name and an affiliation; the search matches both.
   const shownBoard = useMemo(
     () =>
-      moving || hasSource || (functions.size > 0 && !functions.has('board'))
+      section !== 'all' && section !== 'board'
         ? []
         : boardMembers.filter((m) => matchesQuery(`${m.name} ${m.affiliation ?? ''}`, search)),
-    [boardMembers, moving, hasSource, functions, search],
+    [boardMembers, section, search],
   );
   const parents = useMemo(() => {
     const ids: string[] = [];
@@ -252,20 +264,18 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
       else next.add(id);
       return next;
     });
-  const toggleFunction = (key: BoardColumnKey) =>
-    setFunctions((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
   const clearFilters = () => {
     setSearch('');
-    setFunctions(new Set());
-    setMoving(false);
-    setHasSource(false);
+    setSection('all');
   };
-  const hasLines = parentOf.size > 0;
+
+  const sectionOptions = useMemo(
+    () => [
+      { key: 'all' as Section, label: 'Everyone', count: people.length + boardMembers.length },
+      ...COLUMN_ORDER.filter((k) => (counts.get(k) ?? 0) > 0).map((k) => ({ key: k as Section, label: COLUMN_LABEL[k], count: counts.get(k)! })),
+    ],
+    [people.length, boardMembers.length, counts],
+  );
 
   // The org-chart teardown: a report researched specifically about how this team is set up.
   const orgReportButton = (
@@ -295,45 +305,6 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
     </button>
   );
 
-  const filterControls = (
-    <>
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by function">
-        <FilterChip active={functions.size === 0} onClick={() => setFunctions(new Set())} count={people.length}>
-          All
-        </FilterChip>
-        {FUNCTION_ORDER.filter((k) => (columnCounts.get(k) ?? 0) > 0).map((k) => (
-          <FilterChip key={k} active={functions.has(k)} onClick={() => toggleFunction(k)} count={columnCounts.get(k)}>
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: COLUMN_COLOR[k] }} aria-hidden />
-            {COLUMN_LABEL[k]}
-          </FilterChip>
-        ))}
-      </div>
-      {((boardMembers.length > 0 && view === 'board') || movingCount > 0 || withSource > 0) && (
-        <span className="hidden h-5 w-px bg-border lg:block" aria-hidden />
-      )}
-      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="More filters">
-        {boardMembers.length > 0 && view === 'board' && (
-          <span title="Directors from Mission & governance who are not on the team list; the function chips already cover everyone else">
-            <FilterChip active={functions.has('board')} onClick={() => toggleFunction('board')} count={boardMembers.length}>
-              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-hidden />
-              Board only
-            </FilterChip>
-          </span>
-        )}
-        {movingCount > 0 && (
-          <FilterChip active={moving} onClick={() => setMoving((m) => !m)} count={movingCount}>
-            Moving
-          </FilterChip>
-        )}
-        {withSource > 0 && (
-          <FilterChip active={hasSource} onClick={() => setHasSource((s) => !s)} count={withSource}>
-            Has source
-          </FilterChip>
-        )}
-      </div>
-    </>
-  );
-
   return (
     <QueryBoundary
       query={query}
@@ -358,63 +329,50 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
             : undefined;
         const total = result.content.nodes.length;
         const nothingShown = filtered.length === 0 && shownBoard.length === 0;
-        // True of every person, so it is said once above the board and not on each card.
-        const noCareer = total >= 2 && result.content.nodes.every((p) => statLines(p).length === 0);
         return (
           <div className="cascade">
             <SectionHeader
               title="Team & organization"
               count={`${total} ${total === 1 ? 'person' : 'people'}${withSource > 0 ? ` · ${withSource} with a source` : ''}`}
               description={
-                view === 'board'
-                  ? hasLines
-                    ? 'Pinned by function. Red strings show who reports to whom, as reported by sources. Turn a card over for its sources; open a profile for the background.'
-                    : 'Pinned by function. No reporting lines were sourced, so there are no strings. Turn a card over for its sources; open a profile for the background.'
-                  : 'Who reports to whom, as reported by sources. Select a person for background and sources. Collapse branches to focus.'
+                shownView === 'lines'
+                  ? 'Who reports to whom, as sources reported it. Select a person for their background and sources.'
+                  : `The people who run ${name}, grouped by role. Select a person for their background and sources.`
               }
-              actions={
-                orgReportButton
-              }
+              actions={orgReportButton}
             />
 
-            {/* Toolbar: search and the view switch on one row; the filter chips sit on a row of their own beneath. */}
-            <div className="mb-4 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <SearchBox
-                value={search}
-                onChange={setSearch}
-                label="Search people"
-                placeholder="Search name, role, prior company"
-                className="w-full sm:w-80"
-              />
-              {narrow ? (
-                <button
-                  type="button"
-                  aria-expanded={filtersOpen}
-                  onClick={() => setFiltersOpen((o) => !o)}
-                  className="chip border-border bg-surface text-muted hover:text-content"
-                >
-                  <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
-                  Filter{activeFilters > 0 ? ` (${activeFilters})` : ''}
-                </button>
-              ) : null}
-              <div className="ml-auto inline-flex rounded-lg border border-border bg-surface-2/60 p-0.5" role="group" aria-label="View">
-                {(['board', 'list'] as const).map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    aria-pressed={view === v}
-                    onClick={() => setView(v)}
-                    className={cn(
-                      'rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors',
-                      view === v ? 'bg-surface text-content shadow-card' : 'text-muted hover:text-content',
-                    )}
-                  >
-                    {v}
-                  </button>
-                ))}
+            {/* Toolbar: search and the view switch, then one segmented control for the sections. */}
+            <div className="mb-6 space-y-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <SearchBox
+                  value={search}
+                  onChange={setSearch}
+                  label="Search people"
+                  placeholder="Search name, role, prior company"
+                  className="w-full sm:w-80"
+                />
+                {hasLines && (
+                  <div className="ml-auto inline-flex rounded-lg border border-border bg-surface-2/60 p-0.5" role="group" aria-label="View">
+                    {([['people', 'People'], ['lines', 'Reporting lines']] as const).map(([v, label]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={shownView === v}
+                        onClick={() => setView(v)}
+                        className={cn(
+                          'rounded-md px-3 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary',
+                          shownView === v ? 'bg-surface text-content shadow-card' : 'text-muted hover:text-content',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              {view === 'list' && parents.length > 0 && !filtering && (
+              {sectionOptions.length > 2 && <SectionPicker options={sectionOptions} value={section} onChange={setSection} />}
+              {shownView === 'lines' && parents.length > 0 && !filtering && (
                 <span className="flex items-center gap-1 text-[11px]">
                   <button
                     type="button"
@@ -433,40 +391,18 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                 </span>
               )}
             </div>
-            {narrow ? (
-              filtersOpen && <div className="space-y-2 rounded-xl border border-border bg-surface p-3">{filterControls}</div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">{filterControls}</div>
-            )}
-            </div>
 
-            {view === 'board' ? (
-              <div className="space-y-4">
-                {/* The human layer: the founders and chiefs, named in full. */}
-                {!filtering && (
-                  <LeaderGrid nodes={result.content.nodes} companyName={name} onOpenPerson={setSelectedPersonId} />
-                )}
-                {nothingShown ? (
-                  <NoMatches search={search} onClear={clearFilters} />
-                ) : (
-                  <>
-                  {noCareer && <p className="text-[12px] text-faint">No career details were reported for these people.</p>}
-                  <OrgBoard
-                    careerNote={!noCareer}
-                    people={filtered}
-                    parentOf={parentOf}
-                    company={profileCompany}
-                    board={shownBoard}
-                    onOpen={setSelectedPersonId}
-                  />
-                  </>
-                )}
-              </div>
+            {shownView === 'people' ? (
+              nothingShown ? (
+                <NoMatches search={search} onClear={clearFilters} />
+              ) : (
+                <OrgBoard people={filtered} company={profileCompany} board={shownBoard} onOpen={setSelectedPersonId} />
+              )
             ) : visible.length === 0 ? (
               <NoMatches search={search} onClear={clearFilters} />
             ) : (
               <>
-                <ul className={cn(!hasLines ? 'grid gap-2 sm:grid-cols-2 xl:grid-cols-3' : 'space-y-2')}>
+                <ul className="space-y-2">
                   {visible.map((root) => (
                     <OrgRow
                       key={root.person.id}
@@ -491,47 +427,45 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                 )}
               </>
             )}
-            <p className="mt-4 text-[11px] leading-relaxed text-faint">
-              Titles, tenure and prior roles appear only when a source reported them. A missing
-              detail means research has not found it yet; deeper research on a person fills it in.
+            <p className="mt-6 text-[11px] leading-relaxed text-faint">
+              Only details a source reported are shown. Deeper research on a person, from their profile, can fill in more.
             </p>
 
             {selected && (
-              <Modal
+              <Dialog
                 open
-                size="xl"
                 onOpenChange={(open) => {
                   if (!open) setSelectedPersonId(null);
                 }}
-                title={selected.name}
-                description={selected.role}
               >
-                <PersonProfile
-                  people={result.content.nodes}
-                  selectedId={selected.id}
-                  onSelect={setSelectedPersonId}
-                  company={profileCompany}
-                  showHeading={false}
-                  onAsk={(person) => {
-                    const pinnedContext = [
-                      `Name: ${person.name}`,
-                      `Role: ${person.role}`,
-                      `Company: ${name}`,
-                      `Tenure: ${reportedValue(reported(person.tenure))}`,
-                      `Prior company: ${reportedValue(reported(person.priorCompany))}`,
-                      `Notable project: ${reportedValue(reported(person.notableProject))}`,
-                      `Reported background: ${reportedValue(person.bio)}`,
-                    ].join('\n');
-                    chat(
-                      { kind: 'datapoint', deckId: null, companyId, subject: person.name },
-                      {
-                        seed: `Research ${person.name} at ${name}. Verify the pinned dashboard context below with grounded, current sources. Expand their background, track record, relevant projects, and any meaningful influence on the company. Keep unknowns explicit and distinguish sourced facts from inference.\n\nPinned dashboard context:\n${pinnedContext}`,
-                      },
-                    );
-                    setSelectedPersonId(null);
-                  }}
-                />
-              </Modal>
+                <DialogContent size="xl" aria-describedby={undefined}>
+                  <DialogTitle className="sr-only">{selected.name}</DialogTitle>
+                  <PersonProfile
+                    people={result.content.nodes}
+                    selectedId={selected.id}
+                    onSelect={setSelectedPersonId}
+                    company={profileCompany}
+                    onAsk={(person) => {
+                      const pinnedContext = [
+                        `Name: ${person.name}`,
+                        `Role: ${person.role}`,
+                        `Company: ${name}`,
+                        `Tenure: ${reportedValue(reported(person.tenure))}`,
+                        `Prior company: ${reportedValue(reported(person.priorCompany))}`,
+                        `Notable project: ${reportedValue(reported(person.notableProject))}`,
+                        `Reported background: ${reportedValue(person.bio)}`,
+                      ].join('\n');
+                      chat(
+                        { kind: 'datapoint', deckId: null, companyId, subject: person.name },
+                        {
+                          seed: `Research ${person.name} at ${name}. Verify the pinned dashboard context below with grounded, current sources. Expand their background, track record, relevant projects, and any meaningful influence on the company. Keep unknowns explicit and distinguish sourced facts from inference.\n\nPinned dashboard context:\n${pinnedContext}`,
+                        },
+                      );
+                      setSelectedPersonId(null);
+                    }}
+                  />
+                </DialogContent>
+              </Dialog>
             )}
           </div>
         );

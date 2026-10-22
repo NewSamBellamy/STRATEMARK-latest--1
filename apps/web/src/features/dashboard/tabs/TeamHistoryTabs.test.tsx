@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
 import { TeamOrgTab } from './TeamOrgTab';
 import { HistoryTab } from './HistoryTab';
 
 vi.mock('./LeaderGrid', () => ({
   WikiAvatar: ({ name }: { name: string }) => <span>{name.charAt(0)}</span>,
-  LeaderGrid: () => <div data-testid="leader-grid" />,
   useWikiHeadshot: () => null,
   photoCredit: () => '',
   initialsOf: (n: string) => n.charAt(0),
@@ -25,34 +24,49 @@ const orgNodes = [
 ];
 
 describe('team & org tab', () => {
-  it('defaults to the board, toggles to the list and remembers the choice', async () => {
+  it('defaults to people in sections, toggles to reporting lines and remembers the choice', async () => {
     localStorage.removeItem('mi.teamOrgView');
     const { user } = renderWithProviders(<TeamOrgTab companyId="cmp" />, {
       repository: repoWith('team_org', { nodes: orgNodes }),
     });
     expect(await screen.findByRole('group', { name: 'Org board' })).toBeInTheDocument();
     expect(document.querySelectorAll('[data-person-id]')).toHaveLength(2);
-    expect(document.querySelectorAll('path[data-string]')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: 'board' })).toHaveAttribute('aria-pressed', 'true');
-    await user.click(screen.getByRole('button', { name: 'list' }));
+    expect(document.querySelector('path[data-string]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'People' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Reporting lines' }));
     expect(screen.queryByRole('group', { name: 'Org board' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Collapse Ada Lovelace/ })).toBeInTheDocument();
     expect(localStorage.getItem('mi.teamOrgView')).toBe('list');
     localStorage.removeItem('mi.teamOrgView');
   });
 
-  it('migrates the old "chart" view choice to the board', async () => {
+  it('offers no view toggle when research sourced no reporting lines', async () => {
+    localStorage.setItem('mi.teamOrgView', 'list');
+    const flat = orgNodes.map((n) => ({ ...n, parentId: null }));
+    renderWithProviders(<TeamOrgTab companyId="cmp" />, { repository: repoWith('team_org', { nodes: flat }) });
+    expect(await screen.findByRole('group', { name: 'Org board' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reporting lines' })).not.toBeInTheDocument();
+    localStorage.removeItem('mi.teamOrgView');
+  });
+
+  it('migrates the old "chart" view choice to people', async () => {
     localStorage.setItem('mi.teamOrgView', 'chart');
     renderWithProviders(<TeamOrgTab companyId="cmp" />, { repository: repoWith('team_org', { nodes: orgNodes }) });
     expect(await screen.findByRole('group', { name: 'Org board' })).toBeInTheDocument();
     localStorage.removeItem('mi.teamOrgView');
   });
 
-  it('hides the zero-count Moving chip when no sourced move exists, and says so when search finds no one', async () => {
+  it('filters by section with one segmented control, and says so when search finds no one', async () => {
     localStorage.removeItem('mi.teamOrgView');
-    const { user } = renderWithProviders(<TeamOrgTab companyId="cmp" />, { repository: repoWith('team_org', { nodes: orgNodes }) });
+    const nodes = [...orgNodes, { id: 'c', name: 'Cy Park', role: 'Head of Product', group: 'product', parentId: 'a', bio: '' }];
+    const { user } = renderWithProviders(<TeamOrgTab companyId="cmp" />, { repository: repoWith('team_org', { nodes }) });
     await screen.findByRole('group', { name: 'Org board' });
+    const picker = screen.getByRole('group', { name: 'Show section' });
     expect(screen.queryByRole('button', { name: /Moving/ })).not.toBeInTheDocument();
+    await user.click(within(picker).getByRole('button', { name: /Product & design/ }));
+    expect([...document.querySelectorAll('[data-person-id]')].map((e) => e.getAttribute('data-person-id'))).toEqual(['c']);
+    await user.click(within(picker).getByRole('button', { name: /Everyone/ }));
+    expect(document.querySelectorAll('[data-person-id]')).toHaveLength(3);
     await user.type(screen.getByLabelText('Search people'), 'zzzz');
     expect(await screen.findByText(/No one matches/)).toBeInTheDocument();
     await user.click(screen.getAllByRole('button', { name: 'Clear search' }).at(-1)!);
