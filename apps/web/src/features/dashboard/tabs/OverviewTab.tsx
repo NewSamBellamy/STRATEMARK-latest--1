@@ -7,7 +7,6 @@ import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
 import { ResearchMarkdown } from '@/components/ResearchMarkdown';
 import { ErrorState } from '@/components/states/ErrorState';
 import { cn } from '@/lib/cn';
-import { METRIC_COLORS } from '@/lib/theme';
 import { HydratingPanel } from './HydratingPanel';
 import {
   FILL_HINT,
@@ -19,7 +18,7 @@ import {
   splitAttribution,
   type PeerRanking,
 } from '../dashboardModel';
-import { KpiTileSkeleton, metricLabel, useTabHref } from '../dashboardKit';
+import { metricLabel, useTabHref } from '../dashboardKit';
 import { TabSection } from './TabKit';
 import { SourceCheck } from '../SourceCheck';
 import { usePeers } from '../usePeers';
@@ -115,18 +114,34 @@ function Empty({ title, text }: { title: string; text: string }) {
 
 // ---- Key figures: the same figure set the Metrics tab reads ----------------
 
-// Tiles divide the row evenly (never 3 + 2 with an empty slot): all in one row where there
-// is width (xl), three across for three or six, and a lone last tile in the 2-up grid spans it.
+// One strip of figures divided by hairlines (the strip's background shows through a 1px gap).
+// The cells divide the row evenly: all in one row where there is width, and a lone last cell
+// in the 2-up grid spans it, so no slot is left empty.
 const ORPHAN_SPAN = '[&>:last-child:nth-child(odd)]:col-span-2';
 const KPI_COLUMNS: Record<number, string> = {
   0: 'lg:grid-cols-4',
   1: 'lg:grid-cols-1 lg:[&>:last-child:nth-child(odd)]:col-span-1',
   2: 'lg:grid-cols-2',
   3: 'lg:grid-cols-3 lg:[&>:last-child:nth-child(odd)]:col-span-1',
-  4: 'xl:grid-cols-4',
-  5: 'xl:grid-cols-5 xl:[&>:last-child:nth-child(odd)]:col-span-1',
+  4: 'lg:grid-cols-4',
+  5: 'lg:grid-cols-5 lg:[&>:last-child:nth-child(odd)]:col-span-1',
   6: 'lg:grid-cols-3',
 };
+
+/**
+ * Where a figure sits in the deck: a short track with the deck's companies as ticks, the
+ * leader on the left and this company marked. Drawn from the rank alone (only companies with
+ * a known, comparable figure take part), so it adds no number of its own.
+ */
+export function RankTrack({ rank, of }: { rank: number; of: number }) {
+  const at = of > 1 ? ((rank - 1) / (of - 1)) * 100 : 0;
+  return (
+    <span className="relative block h-2 w-full" aria-hidden>
+      <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-border" />
+      <span className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-content ring-2 ring-surface" style={{ left: `${at}%` }} />
+    </span>
+  );
+}
 
 /**
  * One key figure. It reads the same figure set as Metrics, so a figure found
@@ -139,13 +154,13 @@ function FigureTile({ metric, ranking, href, group }: { metric: CompanyMetric; r
   const label = metricLabel(metric);
   if (!isKnown(metric)) {
     return (
-      <article className="flex min-w-0 flex-col rounded-xl border border-dashed border-border bg-surface-2/40 p-4" aria-label={`${label}: Not found yet`}>
-        <h3 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</h3>
-        <p className="mt-1.5 flex items-center gap-1.5 font-display text-lg font-semibold text-muted">
+      <article className="flex min-w-0 flex-col bg-surface px-4 py-4 sm:px-5" aria-label={`${label}: Not found yet`}>
+        <h3 className="truncate text-[11.5px] font-medium text-muted">{label}</h3>
+        <p className="mt-2 flex items-center gap-1.5 text-[15px] font-medium text-faint">
           <SearchX className="h-4 w-4" aria-hidden />
           Not found yet
         </p>
-        <p className="mt-1 text-[11.5px] leading-snug text-faint">{FILL_HINT[type]}</p>
+        <p className="mt-1.5 text-[11.5px] leading-snug text-faint">{FILL_HINT[type]}</p>
       </article>
     );
   }
@@ -154,37 +169,43 @@ function FigureTile({ metric, ranking, href, group }: { metric: CompanyMetric; r
   const currency = currencyCaptionFor(metric);
   const estimated = metric.confidence === 'estimated';
   const display = figureDisplay(metric);
+  const ranked = ranking?.rank != null && ranking.of > 1 ? ranking : null;
   return (
     <article
-      className="flex min-w-0 flex-col rounded-xl border border-border bg-surface p-4 shadow-soft"
-      style={{ borderTopColor: METRIC_COLORS[type], borderTopWidth: 2 }}
+      className="flex min-w-0 flex-col bg-surface px-4 py-4 sm:px-5"
       aria-label={`${label}: ${display}${estimated ? ' (estimated)' : ''}`}
     >
-      <h3 className="truncate text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</h3>
-      <p className="mt-1.5 font-display text-[26px] font-semibold leading-none tabular-nums text-content">
+      <h3 className="truncate text-[11.5px] font-medium text-muted">{label}</h3>
+      <p className="mt-1.5 font-display text-[28px] font-semibold leading-none tracking-tight tabular-nums text-content">
         {display}
         {/* A real space, not margin: copy-paste and screen readers otherwise get "$8.0Best.". */}
-        {estimated && <>{' '}<abbr title="Estimated" className="text-[11px] font-normal text-faint no-underline">est.</abbr></>}
+        {estimated && <>{' '}<abbr title="Estimated" className="align-top text-[11px] font-normal tracking-normal text-faint no-underline">est.</abbr></>}
       </p>
-      <p className="mt-2.5 truncate text-[11.5px] text-muted">
-        {citation ? (
-          <a href={sourceHref(citation.url, citation.title)} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1 text-primary-ink hover:underline">
-            <span className="truncate">{publisherOf(citation.url, citation.title)}</span>
-            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-          </a>
-        ) : metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}
-      </p>
-      <p className="mt-0.5 text-[11px] text-faint">
-        {figureTrust(metric)}{dates.period ? ` · For ${dates.period}` : dates.notReported ? ' · Period not reported' : ''}
-      </p>
-      {dates.record && <p className="text-[11px] text-faint">{dates.record}</p>}
-      {currency && <p className="mt-1 text-[11px] leading-snug text-muted">{currency}</p>}
-      <SourceCheck metric={metric} label={label} className="mt-1" groupedUndated={group.noPeriod} />
-      {ranking?.rank != null && ranking.of > 1 && (
-        <Link to={href} className="mt-auto pt-2 text-[11px] text-faint hover:text-primary-ink">
-          <span className="font-semibold tabular-nums text-content">#{ranking.rank}</span> of {ranking.of} companies with this figure
+      {ranked && (
+        <Link to={href} className="group/rank mt-3 block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          title={`Ranked among ${ranked.of} companies in this deck with a known figure${ranked.unknownPeers ? `; ${ranked.unknownPeers} without one are left out` : ''}${ranked.includesEstimates ? '; includes estimates' : ''}.`}>
+          <RankTrack rank={ranked.rank!} of={ranked.of} />
+          <span className="mt-1.5 block text-[11.5px] text-muted group-hover/rank:text-primary-ink">
+            <span className="font-semibold tabular-nums text-content">#{ranked.rank}</span> of {ranked.of} in this deck
+          </span>
         </Link>
       )}
+      <div className="mt-auto pt-3 text-[11px] leading-snug text-faint">
+        <p className="truncate">
+          {citation ? (
+            <a href={sourceHref(citation.url, citation.title)} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1 text-muted hover:text-primary-ink hover:underline">
+              <span className="truncate">{publisherOf(citation.url, citation.title)}</span>
+              <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+            </a>
+          ) : metric.confidence === 'user_verified' ? 'Your correction' : 'No link recorded'}
+        </p>
+        <p className="mt-0.5">
+          {figureTrust(metric)}{dates.period ? ` · For ${dates.period}` : dates.notReported ? ' · Period not reported' : ''}
+        </p>
+        {dates.record && <p>{dates.record}</p>}
+        {currency && <p className="mt-1 text-muted">{currency}</p>}
+        <SourceCheck metric={metric} label={label} className="mt-1" groupedUndated={group.noPeriod} />
+      </div>
     </article>
   );
 }
@@ -333,12 +354,18 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         action={<Link to={href('metrics')} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}
       >
         {metricsQ.isPending || !figures ? (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => <KpiTileSkeleton key={i} i={i} />)}
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="bg-surface px-5 py-4" aria-hidden>
+                <div className="h-2.5 w-16 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
+                <div className="mt-3 h-7 w-24 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
+                <div className="mt-4 h-2.5 w-20 animate-pulse rounded bg-surface-2 motion-reduce:animate-none" />
+              </div>
+            ))}
           </div>
         ) : (
           <>
-          <div className={cn('grid grid-cols-2 gap-4', ORPHAN_SPAN, KPI_COLUMNS[Math.min(keyFigures.length, 6)])}>
+          <div className={cn('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border shadow-soft', ORPHAN_SPAN, KPI_COLUMNS[Math.min(keyFigures.length, 6)])}>
             {keyFigures.map((metric) => {
               const ranking = isKnown(metric) && peerState.status === 'ready'
                 ? rankInDeck(companyId, metric.metricType, peerState.peers) : null;
