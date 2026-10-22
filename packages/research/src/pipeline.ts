@@ -17,6 +17,7 @@ import {
   buildCmsInput,
   comparableMetricBasis,
   computeCms,
+  enforceMetricProvenance,
   type Card,
   type CardType,
   type CardWithCompany,
@@ -951,7 +952,9 @@ function buildStubCard(candidate: CompanyCandidate, deck: Deck): CardWithCompany
   return {
     card,
     company,
-    metrics: initialMetrics,
+    // A candidate carries no grounding citations, so a seeded figure cannot
+    // earn `verified`: the gate demotes it to `estimated` at write time.
+    metrics: initialMetrics.map((metric) => enforceMetricProvenance(metric)),
     viceClaims: [],
   };
 }
