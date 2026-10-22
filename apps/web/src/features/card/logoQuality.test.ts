@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   HERO_DISPLAY_PX, brandPaletteFrom, forgetLogoVerdicts, logoVerdict, pixelStatsFrom, rememberLogo, rememberedLogo,
   type LogoPixelStats,
@@ -104,5 +104,21 @@ describe('remembered verdicts', () => {
     rememberLogo('https://example.org/logo.png', { verdict: { ok: false, reason: 'generic' }, palette: [], read: true });
     expect(rememberedLogo('https://example.org/logo.png')?.verdict.reason).toBe('generic');
     forgetLogoVerdicts();
+  });
+
+  it('ignores malformed stored entries instead of handing them to the card', async () => {
+    window.localStorage.setItem('stratemark.logoGate.v1', JSON.stringify({
+      'https://a.test/bad1.png': null,
+      'https://a.test/bad2.png': { palette: [] },
+      'https://a.test/bad3.png': { verdict: { ok: true, reason: 'ok' }, palette: 'red', read: true },
+      'https://a.test/good.png': { verdict: { ok: true, reason: 'ok' }, palette: ['#ff0000'], read: true },
+    }));
+    vi.resetModules();
+    const fresh = await import('./logoQuality');
+    expect(fresh.rememberedLogo('https://a.test/bad1.png')).toBeNull();
+    expect(fresh.rememberedLogo('https://a.test/bad2.png')).toBeNull();
+    expect(fresh.rememberedLogo('https://a.test/bad3.png')).toBeNull();
+    expect(fresh.rememberedLogo('https://a.test/good.png')?.palette).toEqual(['#ff0000']);
+    fresh.forgetLogoVerdicts();
   });
 });

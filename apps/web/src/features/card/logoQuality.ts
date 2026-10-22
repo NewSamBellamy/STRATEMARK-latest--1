@@ -190,12 +190,23 @@ const STORE_KEY = 'stratemark.logoGate.v1';
 const STORE_MAX = 400;
 let memory: Map<string, RememberedLogo> | null = null;
 
+/** Stored JSON can be hand-edited or from an older build: only well-formed entries are trusted. */
+function isRemembered(v: unknown): v is RememberedLogo {
+  if (!v || typeof v !== 'object') return false;
+  const e = v as Partial<RememberedLogo>;
+  return !!e.verdict && typeof e.verdict.ok === 'boolean' && typeof e.verdict.reason === 'string'
+    && Array.isArray(e.palette) && e.palette.every((c) => typeof c === 'string') && typeof e.read === 'boolean';
+}
+
 function load(): Map<string, RememberedLogo> {
   if (memory) return memory;
   memory = new Map();
   try {
     const raw = window.localStorage.getItem(STORE_KEY);
-    if (raw) for (const [k, v] of Object.entries(JSON.parse(raw) as Record<string, RememberedLogo>)) memory.set(k, v);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed)) if (isRemembered(v)) memory.set(k, v);
+    }
   } catch { /* no storage: verdicts last for this visit only */ }
   return memory;
 }
