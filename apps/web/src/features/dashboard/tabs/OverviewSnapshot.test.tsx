@@ -3,9 +3,13 @@ import { screen } from '@testing-library/react';
 import type { DashboardTab } from '@mi/contracts';
 import { useDashboardTab } from '@/hooks/data';
 import { makeRepo, renderWithProviders } from '@/test/test-utils';
-import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
+import { LeaderFace, MarketPeers, OverviewSnapshot, columnScales } from './OverviewSnapshot';
 
-vi.mock('./LeaderGrid', () => ({ WikiAvatar: ({ name }: { name: string }) => <span data-testid="avatar">{name[0]}</span> }));
+vi.mock('./LeaderGrid', () => ({
+  useWikiHeadshot: () => null,
+  photoCredit: () => 'Photo: Wikipedia',
+  initialsOf: (name: string) => name.split(' ').map((w) => w[0]).join(''),
+}));
 
 const NOW = '2026-10-01T00:00:00.000Z';
 const content: Partial<Record<DashboardTab, unknown>> = {
@@ -94,5 +98,39 @@ describe('overview: in this market', () => {
   it('shows nothing without a deck to compare against', () => {
     renderWithProviders(<MarketPeers companyId="cmp_1" />);
     expect(screen.queryByText('In this market')).not.toBeInTheDocument();
+  });
+});
+
+describe('overview: how they compare scales', () => {
+  const cell = (value: number, currency: string | null = null) => ({ value, confidence: 'verified' as const, display: String(value), currency, converted: false });
+  const row = (id: string, cells: Array<ReturnType<typeof cell> | null>) => ({ companyId: id, name: id, isSelf: id === 'me', cells });
+
+  it('places each sourced figure among the comparable ones and scales bars to the largest', () => {
+    const table = [row('a', [cell(100), null]), row('me', [cell(40), cell(7)]), row('c', [cell(10, 'EUR'), cell(9)]), row('d', [null, null])];
+    const scales = columnScales(table);
+    expect(scales.lead).toBe(0);
+    expect(scales[0]!.max).toBe(100);
+    expect(scales[0]!.count).toBe(2);
+    expect(scales[0]!.rankOf(table[1]!.cells[0])).toBe(2);
+    // Another currency and a missing figure take no place.
+    expect(scales[0]!.rankOf(table[2]!.cells[0])).toBeNull();
+    expect(scales[0]!.rankOf(null)).toBeNull();
+    expect(scales[1]!.rankOf(table[1]!.cells[1])).toBe(2);
+  });
+
+  it('orders by the first column that has a comparable figure', () => {
+    expect(columnScales([row('a', [null, cell(3)]), row('b', [cell(5, 'EUR'), cell(4)])]).lead).toBe(1);
+  });
+});
+
+describe('overview: leader faces', () => {
+  it('shows the photo stored with the person, and initials when there is none', () => {
+    const { container } = renderWithProviders(<>
+      <LeaderFace person={{ name: 'Sam Ceo', photoUrl: 'https://upload.wikimedia.org/sam.jpg' }} companyName="Acme" />
+      <LeaderFace person={{ name: 'Pat Cfo', photoUrl: null }} companyName="Acme" />
+    </>);
+    expect(container.querySelector('img')).toHaveAttribute('src', 'https://upload.wikimedia.org/sam.jpg');
+    expect(container.querySelectorAll('img')).toHaveLength(1);
+    expect(screen.getByText('PC')).toBeInTheDocument();
   });
 });
