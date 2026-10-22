@@ -161,7 +161,7 @@ export function HostedShareDialog({
             </button>
             <p className="text-[11.5px] leading-relaxed text-faint">
               Read-only, kept for {ttlDays} days, and you can stop it any time.
-              {cardId && ' Figures not yet verified are checked first: about a minute and a few searches on your key.'}
+              {cardId && ' Figures not yet verified are checked first: about a minute and a few searches.'}
             </p>
             <button type="button" className="text-[12px] font-medium text-primary-ink underline-offset-2 hover:underline" onClick={onPrivate}>
               Use a private link instead (nothing is uploaded)

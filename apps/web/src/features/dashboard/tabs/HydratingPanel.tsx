@@ -40,7 +40,7 @@ export function HydratingPanel({
           <p className="text-xs text-muted">
             {elapsed < 90
               ? 'Searching live sources now. This section fills in as sourced findings arrive.'
-              : 'Taking longer than usual (research is paced to your key’s limits). You can keep browsing other tabs.'}
+              : 'Taking longer than usual (research is paced to the search provider’s limits). You can keep browsing other tabs.'}
           </p>
         </div>
         {elapsed >= 5 && (
