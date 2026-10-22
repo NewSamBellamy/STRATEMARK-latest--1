@@ -48,7 +48,8 @@ interface CreateOptions {
 /** What went wrong, in words a person can act on. Never echoes a server body we did not write. */
 function failure(status: number, serverMessage: unknown): HostedShareError {
   const said = typeof serverMessage === 'string' && serverMessage.length < 300 ? serverMessage : null;
-  if (status === 413 || status === 429) return new HostedShareError(said ?? 'This could not be shared right now. Try again later, or copy a private link.', status);
+  if (status === 413) return new HostedShareError(said ?? 'This is too large to host. Share a single card, or copy a private link.', status);
+  if (status === 429) return new HostedShareError(said ?? 'This could not be shared right now. Try again later, or copy a private link.', status);
   if (status === 403) return new HostedShareError('Sharing is not set up for this address yet. Copy a private link instead.', status);
   if (status === 0) return new HostedShareError('Could not reach the sharing service. Check your connection and try again.', 0);
   return new HostedShareError('The sharing service could not make the link. Try again in a moment, or copy a private link.', status);

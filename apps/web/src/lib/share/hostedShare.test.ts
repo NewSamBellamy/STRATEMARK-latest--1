@@ -59,6 +59,12 @@ describe('creating a hosted share', () => {
     await expect(offline).rejects.toThrow(/Could not reach the sharing service/);
   });
 
+  it('says "too large" for a 413 that carries no message of ours (an edge refusal), not "try again later"', async () => {
+    const run = createHostedShare(snapshot, { apiUrl: 'https://a.example', viewerUrl: 'https://app.example.com/share.html', fetcher: (async () => new Response('Payload Too Large', { status: 413 })) as unknown as typeof fetch });
+    await expect(run).rejects.toThrow(/too large/);
+    await expect(run).rejects.not.toThrow(/later/);
+  });
+
   it('does not repeat a server body it did not write, however long', async () => {
     const run = createHostedShare(snapshot, { apiUrl: 'https://a.example', viewerUrl: 'https://app.example.com/share.html', fetcher: (async () => reply(429, { error: 'x'.repeat(5000) })) as unknown as typeof fetch });
     await expect(run).rejects.toThrow(/Try again later/);
