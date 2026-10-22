@@ -72,4 +72,25 @@ describe('DeckCompare', () => {
     expect(screen.getByText(/Open this company from its deck/)).toBeInTheDocument();
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
   });
+
+  it('cuts a far-larger outlier short, labels the break and leaves the value text unchanged', () => {
+    const emp = (id: string, name: string, v: number): PeerEntry => ({ companyId: id, name, metrics: [metric(id, 'employees', v)] });
+    const peers = [emp('a', 'Acme', 2300), emp('m', 'Microsoft', 228000), emp('c', 'Gamma', 350)];
+    renderWithProviders(
+      <DeckCompare type="employees" selfId="a" selfName="Acme" peerStatus="ready" peers={peers} hrefFor={href} figureTypes={['employees']} />,
+    );
+    const link = screen.getByRole('link', { name: /Microsoft/ });
+    expect(link).toHaveTextContent('bar shortened, value is 228K');
+    const row = link.closest('li')!;
+    expect(row).toHaveTextContent('228K');
+    expect(row.querySelectorAll('[data-bar-break]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-bar-break]')).toHaveLength(1);
+    expect(screen.getByText("Microsoft's bar is cut short so the others stay readable.")).toBeInTheDocument();
+  });
+
+  it('draws no break when no value dwarfs the rest', () => {
+    renderWithProviders(view('valuation'));
+    expect(document.querySelector('[data-bar-break]')).toBeNull();
+    expect(screen.queryByText(/cut short/)).toBeNull();
+  });
 });

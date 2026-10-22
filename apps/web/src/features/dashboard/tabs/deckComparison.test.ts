@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanyMetric, MetricType } from '@mi/contracts';
 import type { PeerEntry } from '../dashboardModel';
-import { barShare, comparableTypes, deckComparison, niceTicks, scatterPoints, visibleBars } from './deckComparison';
+import { barScale, barShare, comparableTypes, deckComparison, niceTicks, scatterPoints, visibleBars } from './deckComparison';
 
 function metric(companyId: string, type: MetricType, value: number | null, over: Partial<CompanyMetric> = {}): CompanyMetric {
   return {
@@ -63,6 +63,24 @@ describe('barShare', () => {
     expect(barShare(25, 100)).toBe(25);
     expect(barShare(5, 0)).toBeNull();
     expect(barShare(Number.NaN, 100)).toBeNull();
+  });
+});
+
+describe('barScale', () => {
+  const bars = (values: number[]) => deckComparison('a', 'employees', values.map((v, i) => peer(`p${i}`, `Co${i}`, [metric(`p${i}`, 'employees', v)]))).bars;
+  it('breaks only when the largest is more than 5x the second largest', () => {
+    expect(barScale(bars([500, 100])).broken.size).toBe(0);
+    expect(barScale(bars([501, 100])).broken.size).toBe(1);
+    const s = barScale(bars([228000, 2300, 2200, 350, 312]));
+    expect(s.max).toBe(2300);
+    expect([...s.broken]).toEqual(['p0']);
+    expect(barScale(bars([228000, 2300])).max).toBe(2300);
+  });
+  it('is linear and unbroken otherwise, and handles empty input', () => {
+    const s = barScale(bars([300, 200, 100]));
+    expect(s.max).toBe(300);
+    expect(s.broken.size).toBe(0);
+    expect(barScale([]).max).toBe(0);
   });
 });
 

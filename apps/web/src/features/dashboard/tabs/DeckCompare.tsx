@@ -16,7 +16,7 @@ import { formatMetricValue } from '@/lib/format';
 import { shortCompanyName } from '../companyNames';
 import type { PeerEntry } from '../dashboardModel';
 import {
-  barShare, comparableTypes, deckComparison, niceTicks, scatterPoints, visibleBars,
+  barScale, barShare, comparableTypes, deckComparison, niceTicks, scatterPoints, visibleBars,
   type CompareBar, type ScatterPoint,
 } from './deckComparison';
 
@@ -40,11 +40,12 @@ function Legend({ selfName }: { selfName: string }) {
 }
 
 function BarRow({
-  bar, index, max, href, active, onActive,
+  bar, index, max, broken, href, active, onActive,
 }: {
   bar: CompareBar;
   index: number;
   max: number;
+  broken: boolean;
   href: string | null;
   active: boolean;
   onActive: (id: string | null) => void;
@@ -57,6 +58,7 @@ function BarRow({
   }, []);
   const share = barShare(bar.value, max);
   const detail = [bar.estimate ? 'estimate' : bar.trust.toLowerCase(), bar.publisher ? `source ${bar.publisher}` : 'no source link recorded', bar.when].filter(Boolean).join(', ');
+  const breakNote = `bar shortened, value is ${bar.display}`;
   return (
     <li
       data-compare-row
@@ -76,19 +78,25 @@ function BarRow({
       {href ? (
         <Link to={href} className="truncate text-[12.5px] text-muted hover:text-primary-ink hover:underline focus-visible:text-content" title={`Open ${bar.name}'s metrics`}>
           {shortCompanyName(bar.name)}
-          <span className="sr-only">: {bar.display}, {detail}</span>
+          <span className="sr-only">: {bar.display}, {detail}{broken ? `, ${breakNote}` : ''}</span>
         </Link>
       ) : (
         <span tabIndex={0} className="truncate rounded text-[12.5px] font-semibold text-content" title={bar.name}>
           {shortCompanyName(bar.name)}
-          <span className="sr-only">(this company): {bar.display}, {detail}</span>
+          <span className="sr-only">(this company): {bar.display}, {detail}{broken ? `, ${breakNote}` : ''}</span>
         </span>
       )}
       <span className="relative h-3.5 overflow-hidden rounded-[4px] bg-border/40" aria-hidden>
         <span
           className={cn('absolute inset-y-0 left-0 rounded-[4px] transition-[width] duration-500 ease-[cubic-bezier(.2,.8,.2,1)] motion-reduce:transition-none', barClass(bar))}
-          style={{ width: `${Math.max(share ?? 0, 0.6)}%` }}
+          style={{ width: `${broken ? 100 : Math.max(share ?? 0, 0.6)}%` }}
         />
+        {broken && (
+          <svg data-bar-break data-label={breakNote} viewBox="0 0 16 14" preserveAspectRatio="none" className="absolute inset-y-0 right-[18%] h-full w-3 text-surface">
+            <title>{breakNote}</title>
+            <path d="M3 14 L7 0 M9 14 L13 0" stroke="currentColor" strokeWidth="2.6" fill="none" />
+          </svg>
+        )}
       </span>
       <span className={cn('min-w-[64px] text-right text-[12px] tabular-nums', bar.isSelf ? 'font-semibold text-content' : 'text-muted')} aria-hidden>
         {bar.display}{bar.estimate && <span className="ml-0.5 text-[10px] text-faint"> est.</span>}
@@ -103,7 +111,8 @@ function BarsView({
   const [all, setAll] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const rows = visibleBars(bars, LIMIT, all);
-  const max = bars[0]?.value ?? 0;
+  const { max, broken } = useMemo(() => barScale(bars), [bars]);
+  const cut = bars.filter((b) => broken.has(b.companyId));
   const hovered = rows.findIndex((b) => b.companyId === active);
   const tip = hovered >= 0 ? rows[hovered]! : null;
   return (
@@ -111,7 +120,7 @@ function BarsView({
       <div className="relative" style={{ height: rows.length * ROW }} onMouseLeave={() => setActive(null)}>
         <ol aria-label={`${METRIC_TYPE_LABELS[type]} by company, highest first`}>
           {rows.map((b, i) => (
-            <BarRow key={b.companyId} bar={b} index={i} max={max}
+            <BarRow key={b.companyId} bar={b} index={i} max={max} broken={broken.has(b.companyId)}
               href={b.isSelf ? null : hrefFor(b.companyId, type)}
               active={active === b.companyId} onActive={setActive} />
           ))}
@@ -129,6 +138,11 @@ function BarsView({
           </div>
         )}
       </div>
+      {cut.length > 0 && (
+        <p className="mt-2 text-[11.5px] leading-snug text-faint">
+          {cut.map((b) => `${shortCompanyName(b.name)}'s bar`).join(' and ')} is cut short so the others stay readable.
+        </p>
+      )}
       {bars.length > LIMIT && (
         <button type="button" className="mt-2 text-[12px] font-medium text-primary-ink hover:underline" onClick={() => setAll(!all)} aria-expanded={all}>
           {all ? `Show top ${LIMIT}` : `Show all ${bars.length}`}

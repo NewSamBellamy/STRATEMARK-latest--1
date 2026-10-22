@@ -101,6 +101,32 @@ export function barShare(value: number, max: number): number | null {
   return Math.min(100, (value / max) * 100);
 }
 
+/** The largest value must exceed the second largest by more than this to be drawn with an axis break. */
+export const BREAK_RATIO = 5;
+
+export interface BarScale {
+  /** The value that fills the track: the largest, or the second largest when the leader is cut short. */
+  max: number;
+  /** Bars drawn at full width with a break mark; their value text is unchanged. */
+  broken: ReadonlySet<string>;
+}
+
+/**
+ * Linear from zero, always. When one value is more than 5x the next, the scale
+ * follows the next and the outlier is drawn full width with a break mark, so
+ * the rest stay readable. Never a log scale, never a zero bar.
+ */
+export function barScale(bars: readonly CompareBar[]): BarScale {
+  const sorted = [...bars].sort((a, b) => b.value - a.value);
+  const top = sorted[0];
+  const next = sorted[1];
+  if (!top) return { max: 0, broken: new Set() };
+  if (next && next.value > 0 && top.value > BREAK_RATIO * next.value) {
+    return { max: next.value, broken: new Set(sorted.filter((b) => b.value > next.value).map((b) => b.companyId)) };
+  }
+  return { max: top.value, broken: new Set() };
+}
+
 export interface ScatterPoint {
   companyId: string;
   name: string;
