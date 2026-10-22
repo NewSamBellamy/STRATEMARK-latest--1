@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { companyMetricSchema, comparableMetricBasis, metricDefinitionLabel, metricObservationIdentity, reportedMetricSupportSchema } from '@mi/contracts';
-import { providerCompanySummary, reportedCompanyMetrics, reportedMetricCitations, sentenceAround , isTalkOnlyValuation } from './reported-metrics';
+import { businessDates, providerCompanySummary, reportedCompanyMetrics, reportedMetricCitations, sentenceAround , isTalkOnlyValuation } from './reported-metrics';
 import { EQUINIX_ANSWER_TEXT, EQUINIX_SUPPORTS } from './equinix-live-fixture';
 import { enrichmentOutSchema } from './schemas';
 import { METRIC_MEASUREMENT_INSTRUCTIONS } from './prompts';
@@ -69,6 +69,25 @@ function fixture(text = report, value = 40_000_000) {
 async function hydrate(client: LlmClient, originals?: OriginalSourceServices) {
   return hydrateCompanyCard({ candidate, client, plan, originalSources: originals, recoverMissingMetrics: true });
 }
+describe('businessDates', () => {
+  it('reads a written date as that calendar day in any time zone (UTC), never the day before', () => {
+    const before = process.env.TZ;
+    try {
+      for (const tz of ['Pacific/Kiritimati', 'Asia/Tokyo', 'UTC', 'America/Los_Angeles']) {
+        process.env.TZ = tz;
+        expect(businessDates('Revenue was $5 million as of October 5, 2026.')).toEqual(['2026-10-05']);
+        expect(businessDates('as of Sept 1st, 2026 and as of 2026-01-31')).toEqual(['2026-09-01', '2026-01-31']);
+      }
+    } finally {
+      if (before === undefined) delete process.env.TZ; else process.env.TZ = before;
+    }
+  });
+  it('rejects a day that does not exist', () => {
+    expect(businessDates('as of February 30, 2026')).toEqual([]);
+    expect(businessDates('as of Smarch 3, 2026')).toEqual([]);
+  });
+});
+
 describe('provider-supported fast company hydration', () => {
   it('recovers retained revenue when a numeric proposal omits its selector', async () => {
     const { hydrate } = openAiFixture({ arr: { value: 13_100_000_000, confidence: 'estimated' } }, [openAiSegments.revenue]);
@@ -105,6 +124,15 @@ describe('provider-supported fast company hydration', () => {
       enrichment: enrichmentOutSchema.parse({ metrics: { valuation: claim(500_000_000_000, 'valuation', newer, '2025-10-02') } }),
       text: grounding!.answerText, grounding, capturedAt: '2026-10-06T00:00:00.000Z' });
     expect(kept.find(row => row.metricType === 'valuation')).toMatchObject({ value: 500_000_000_000 });
+  });
+  it('a claim dated after the capture is undated and never wins the newest-claim pick', () => {
+    const real = '**Valuation**\nOpenAI had a post-money valuation of $300 billion USD as of March 31, 2026.';
+    const future = 'OpenAI had a post-money valuation of $900 billion USD as of March 31, 2027.';
+    const { grounding, claim } = openAiFixture({}, [real, future]);
+    const rows = reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI', website: 'https://openai.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: { valuation: claim(300_000_000_000, 'valuation', real, '2026-03-31') } }),
+      text: grounding!.answerText, grounding, capturedAt: '2026-10-06T00:00:00.000Z' });
+    expect(rows.find(row => row.metricType === 'valuation')).toMatchObject({ value: 300_000_000_000, reportedSupport: { asOf: '2026-03-31' } });
   });
   it('does not recover an employee figure from the mixed employees-plus-contractors passage alone', () => {
     const { grounding } = openAiFixture({}, [openAiSegments.mixedEmployees]);

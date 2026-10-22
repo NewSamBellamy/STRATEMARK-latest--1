@@ -7,7 +7,7 @@ import type { EnrichmentOut } from './schemas';
 import { describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 import { summaryIsUnfit } from './company-summary';
 import { dateSpans, withinDate } from './date-digits';
-import { beats, sourceCandidate } from './recency-rank';
+import { beats, sourceCandidate, usableDate } from './recency-rank';
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+(?=[A-Z])/);
@@ -471,10 +471,26 @@ export function businessDates(text: string): string[] {
   const dates: string[] = [];
   const pattern = /\b(?:as of|(?:fiscal )?year ended|reporting date(?: was| is)?)\s+(\d{4}-\d{2}-\d{2}|[A-Z][a-z]+ \d{1,2}(?:st|nd|rd|th)?[,]? \d{4})\b/g;
   for (const match of text.matchAll(pattern)) {
-    const parsed = new Date(match[1]!.replace(/(\d)(?:st|nd|rd|th)/, '$1'));
-    if (Number.isFinite(parsed.getTime())) dates.push(parsed.toISOString().slice(0, 10));
+    const day = calendarDay(match[1]!);
+    if (day) dates.push(day);
   }
   return [...new Set(dates)];
+}
+
+/** "2026-10-05" or "October 5, 2026" as YYYY-MM-DD, read as a calendar day (UTC), never shifted
+ * by the machine's time zone; null when it is not a real day. */
+function calendarDay(text: string): string | null {
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  const named = /^([A-Za-z]+) (\d{1,2})(?:st|nd|rd|th)?,? (\d{4})$/.exec(text);
+  let year: number; let month: number; let day: number;
+  if (iso) [year, month, day] = [Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])];
+  else if (named && named[1]!.length >= 3) {
+    month = MONTH_NAMES.findIndex((name) => name.startsWith(named[1]!.toLowerCase()));
+    [year, day] = [Number(named[3]), Number(named[2])];
+  } else return null;
+  if (month < 0 || month > 11) return null;
+  const parsed = new Date(Date.UTC(year, month, day));
+  return parsed.getUTCMonth() === month && parsed.getUTCDate() === day ? parsed.toISOString().slice(0, 10) : null;
 }
 
 const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
@@ -548,7 +564,7 @@ export function storedSupportDate(supportText: string, capturedAt?: string | nul
  * No fuzzy estimates, user populations, new calls or original-verification claim.
  * Multiple values for the same latest period are ambiguous and stay unknown. */
 function recoverOmittedClaim(companyName: string, website: string | null, type: MetricType,
-  grounding?: ProviderGrounding, otherCompanies?: readonly string[], revenueOnly = false) {
+  grounding?: ProviderGrounding, otherCompanies?: readonly string[], revenueOnly = false, nowMs: number = Date.now()) {
   if (!grounding || !['arr', 'employees', 'valuation', 'market_cap', 'market_share', 'aum', 'users', ...CARD_FACT_TYPES].includes(type)) return undefined;
   const choices: Array<{ value: number; selector: NonNullable<NonNullable<EnrichmentOut['metrics']['arr']>['reportedClaim']> }> = [];
   for (const support of grounding.supports) {
@@ -595,7 +611,8 @@ function recoverOmittedClaim(companyName: string, website: string | null, type: 
       // currency written beside it, never assumed.
       const unit: ReportedMetricSupport['unit'] = baseUnit === 'USD' && !/^\s*(?:\$|USD|US\$)/i.test(match[0]) && !/\bUSD\s*$/.test(text.slice(Math.max(0, match.index! - 4), match.index!))
         ? ((currencyAround(text, match.index!, match.index! + match[0].trimEnd().length) ?? 'USD') as ReportedMetricSupport['unit']) : baseUnit;
-      const asOf = dates[0] ?? null;
+      // A date after today is no date: it never wins the latest-claim sort below (recency-rank.ts).
+      const asOf = usableDate(dates[0], nowMs);
       for (const definition of definitions) {
         const proof = reportedMetricSupportSchema.safeParse({ provider: grounding.provider, companyName, basis: type, value, unit, definition, asOf, support });
         if (!proof.success || !reportedMetricCitations(companyName, website, { metricType: type, value, reportedSupport: proof.data },
@@ -917,6 +934,8 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
    * revenue (fees are not subscription revenue): only that definition is kept. */
   profile?: MarketProfile }): CompanyMetric[] {
   const revenueOnly = input.profile === 'financial_firm';
+  // The clock future dates are judged by: when this capture was made.
+  const nowMs = Number.isFinite(Date.parse(input.capturedAt)) ? Date.parse(input.capturedAt) : Date.now();
   const identity: ReportedIdentityContext = {
     answerText: input.identity?.answerText ?? (isAttributedGrounding(input.grounding) ? input.grounding.answerText : undefined),
     otherCompanies: input.identity?.otherCompanies,
@@ -937,7 +956,7 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
     // independently from provider evidence, never by trusting that number.
     // An explicit but rejected selector must not silently trigger recovery.
     const recovered = proposedMetric?.value == null || (!proposedMetric.reportedClaim && !proposedMetric.passageSupport)
-      ? recoverOmittedClaim(input.companyName, input.website, type, trusted, identity.otherCompanies, revenueOnly && type === 'arr') : undefined;
+      ? recoverOmittedClaim(input.companyName, input.website, type, trusted, identity.otherCompanies, revenueOnly && type === 'arr', nowMs) : undefined;
     const proposal = recovered ? { value: recovered.value, reportedClaim: recovered.selector } : proposedMetric;
     const selector = proposal?.reportedClaim ?? ('passageSupport' in (proposal ?? {}) ? proposedMetric?.passageSupport : undefined);
     if (proposal?.value == null || !selector || selector.basis !== type) return row;
@@ -947,11 +966,11 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
     // metric (an old company page beside this week's report). The newest dated claim the
     // provider supports wins when it is at least as credible (recency-rank.ts); an undated
     // or weaker claim never displaces the pick. Both still pass every gate below.
-    const newest = recoverOmittedClaim(input.companyName, input.website, type, trusted, identity.otherCompanies, revenueOnly && type === 'arr');
+    const newest = recoverOmittedClaim(input.companyName, input.website, type, trusted, identity.otherCompanies, revenueOnly && type === 'arr', nowMs);
     const pickedAsOf = chosen.reportedSupport?.asOf ?? null;
     if (newest?.selector.asOf && newest.value !== chosen.reportedSupport?.value &&
       beats(sourceCandidate(type, newest.selector.sourceUrl, newest.selector.asOf, input.website),
-        sourceCandidate(type, chosen.reportedSupport?.support.sources[0]?.url ?? chosen.source, pickedAsOf, input.website))) {
+        sourceCandidate(type, chosen.reportedSupport?.support.sources[0]?.url ?? chosen.source, pickedAsOf, input.website), nowMs)) {
       return reportedRowFrom(row, type, newest.value, newest.selector, newest) ?? chosen;
     }
     return chosen;

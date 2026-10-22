@@ -14,7 +14,7 @@
  *   5. Newer and at least as authoritative replaces (the old value is kept dated);
  *      newer but weaker is kept out and recorded as `newerObservation`, unless it is
  *      a fast-moving figure (valuation, round, total raised, ARR), page-backed and
- *      reputable, and the held figure is more than RECENCY_OVERRIDE_DAYS (a quarter)
+ *      from a newsroom (never an aggregator), and the held figure is more than RECENCY_OVERRIDE_DAYS (a quarter)
  *      older: then it replaces (5b). A filed revenue still outranks a later press number.
  *   6. Older keeps. 7. Same date: values within 2% agree; differing values: the
  *      stronger wins, a tie is a conflict.
@@ -25,7 +25,7 @@
 import { figureAsOf, metricObservationIdentity, readCurrency, type CompanyMetric } from '@mi/contracts';
 import { assessFigure, laneRank, periodKind, type AssessContext } from './source-assessment';
 import { figurePublisher } from './metric-assessment';
-import { RECENCY_OVERRIDE_DAYS, RECENCY_SENSITIVE_TYPES, daysBetween } from './recency-rank';
+import { RECENCY_OVERRIDE_DAYS, RECENCY_SENSITIVE_TYPES, daysBetween, usableDate } from './recency-rank';
 
 export type ObservationDecision = 'replace' | 'keep' | 'conflict' | 'not_comparable';
 export interface ObservationComparison {
@@ -42,18 +42,19 @@ const AGED_OUT_MS = 366 * 86_400_000;
 const LEVEL_RANK = { strong: 3, acceptable: 2, weak: 1 } as const;
 
 /** Displayed lane and publisher level of a stored figure, after the read-time demotions. */
-function standing(metric: CompanyMetric, ctx: AssessContext): { lane: number; level: number; asOf: string | null } {
+function standing(metric: CompanyMetric, ctx: AssessContext): { lane: number; level: number; asOf: string | null; tier: number | null } {
   const assessment = assessFigure(metric, ctx);
   const own = figureAsOf(metric);
   const reading = readCurrency({ metricType: metric.metricType, asOf: own.asOf, asOfSource: own.source, now: ctx.now });
   // The date as the assessment reads it: a page or URL date earlier than the stated one caps it, so a
   // mis-dated figure can never look newer here than it does on the card (page dates only make it older).
-  const effectiveAsOf = assessment ? assessment.currency.asOf : reading.asOf;
+  // A date after today (one day of tolerance) is no date at all (recency-rank.ts usableDate).
+  const effectiveAsOf = usableDate(assessment ? assessment.currency.asOf : reading.asOf, ctx.now.getTime());
   const demoted = assessment?.effect === 'demoted_stale' || assessment?.effect === 'demoted_authority'
     || (metric.confidence === 'verified' && effectiveAsOf != null && ctx.now.getTime() - Date.parse(`${effectiveAsOf}T00:00:00.000Z`) > AGED_OUT_MS);
   const lane = demoted && laneRank(metric) === 3 ? 2 : laneRank(metric);
   const level = assessment?.authority.level ? LEVEL_RANK[assessment.authority.level] : 0;
-  return { lane, level, asOf: effectiveAsOf };
+  return { lane, level, asOf: effectiveAsOf, tier: assessment?.authority.tier ?? null };
 }
 
 const within2pct = (a: number, b: number): boolean => Math.abs(a - b) <= 0.02 * Math.max(Math.abs(a), Math.abs(b));
@@ -85,11 +86,13 @@ export function compareObservations(next: CompanyMetric, current: CompanyMetric,
   }
   if (n.asOf! > c.asOf!) {
     if (atLeast) return { decision: 'replace', reason: `newer figure (${n.asOf}) from an at-least-as-authoritative source` };
-    // 5b. A reputable, page-backed newer report replaces a stronger figure that is more than a
-    //     quarter older (recency-rank.ts): a year-old verified valuation must not hide this
-    //     month's reported one. A weak site (aggregator, unknown) or a search-only lead never does.
+    // 5b. A page-backed newsroom report (publisher tier 3) replaces a stronger figure that is
+    //     more than a quarter older (recency-rank.ts): a year-old verified valuation must not
+    //     hide this month's reported one. A data aggregator (Crunchbase, PitchBook, Tracxn),
+    //     Wikipedia, an unknown site or a search-only lead never does, for any metric.
     const gap = daysBetween(c.asOf!, n.asOf!) ?? 0;
-    if (RECENCY_SENSITIVE_TYPES.includes(next.metricType) && gap > RECENCY_OVERRIDE_DAYS && n.lane >= 2 && n.level >= LEVEL_RANK.acceptable) {
+    if (RECENCY_SENSITIVE_TYPES.includes(next.metricType) && gap > RECENCY_OVERRIDE_DAYS && n.lane >= 2
+      && n.level >= LEVEL_RANK.acceptable && n.tier === 3) {
       return { decision: 'replace', reason: `newer reputable figure (${n.asOf}); the held figure is more than ${RECENCY_OVERRIDE_DAYS} days older (${c.asOf})` };
     }
     return { decision: 'keep', reason: `newer figure (${n.asOf}) is less authoritative; the current figure stays`, newerObservation: true };

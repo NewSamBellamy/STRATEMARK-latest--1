@@ -138,7 +138,7 @@ import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvi
 import { searchEvidenceCorpus } from './retrieval';
 import { HUNT_STALE_FIGURES, companyDomainOf, figurePublisher } from './metric-assessment';
 import { resolveWrite } from './compare-observations';
-import { orderFiguresNewestFirst, rehuntDue } from './recency-rank';
+import { REHUNT_COOLDOWN_DAYS, orderFiguresNewestFirst, rehuntDue } from './recency-rank';
 import { assessFigure, type AssessContext } from './source-assessment';
 import { coalesceOriginalSources, isOriginalSourceAttempt, retainOriginalAttempt, selectOriginalSourceCitations, originalSupportReferences, validatedOriginalSupport, selectOriginalSourceAttempts, type OriginalSourceQuery, type OriginalSourceServices, type OriginalSourceAttempt, type OriginalSourceReceipt, type OriginalSourceScope } from './original-source';
 import { originalSourcePromptViews, secFilingHeadcountObservation, secRevenueConceptUrl, secRevenueFallbackUrl, secRevenueObservation, secRevenueVerification, totalSecRevenue } from './sec-revenue';
@@ -322,6 +322,8 @@ export interface RepoSnapshot {
   rejectedMoveIds?: Record<string, string>;
   /** companyId → when the user last refreshed a deck holding it: a twin's tabs from before then are never lent. */
   tabsRefreshedAt?: Record<string, string>;
+  /** companyId → metric type → when a deck refresh last re-hunted that figure (REHUNT_COOLDOWN_DAYS). */
+  staleRehuntAt?: Record<string, Partial<Record<MetricType, string>>>;
   /** marketId → cached whitespace analysis. */
   opportunity: Record<
     string,
@@ -1376,6 +1378,9 @@ export class GeminiRepository implements MarketIntelRepository {
       tabsRefreshedAt: prev.tabsRefreshedAt
         ? Object.fromEntries(Object.entries(prev.tabsRefreshedAt).filter(([companyId]) => !orphaned.has(companyId)))
         : prev.tabsRefreshedAt,
+      staleRehuntAt: prev.staleRehuntAt
+        ? Object.fromEntries(Object.entries(prev.staleRehuntAt).filter(([companyId]) => !orphaned.has(companyId)))
+        : prev.staleRehuntAt,
       researchJobs: prev.researchJobs.filter((job) => !allJobIds.has(job.id)),
       briefings: prev.briefings.filter((b) => b.marketId !== marketId && !deckIds.has(b.deckId)),
       opportunity,
@@ -1404,7 +1409,7 @@ export class GeminiRepository implements MarketIntelRepository {
     if (prev.productBriefs === undefined) delete next.productBriefs;
     if (prev.signalBriefs === undefined) delete next.signalBriefs;
     if (prev.signalRest === undefined) delete next.signalRest;
-    for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt'] as const) if (prev[key] === undefined) delete next[key];
+    for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt', 'staleRehuntAt'] as const) if (prev[key] === undefined) delete next[key];
     this.snap = next;
     try {
       await this.persist();
@@ -2502,11 +2507,18 @@ export class GeminiRepository implements MarketIntelRepository {
     //    once per refresh. A newer figure replaces the old only by the
     //    latest-wins rule; otherwise the old one stays, labelled.
     //    HUNT_STALE_FIGURES (on since 2026-10-22; was owner decision D6 off): it adds model calls.
+    //    Most out-of-date first, so company 9 and later get their turn: a figure re-hunted
+    //    once is not paid for again for REHUNT_COOLDOWN_DAYS, whoever triggers the refresh
+    //    (a manual refresh or the cadence auto-refresh), so the cap moves down the deck.
+    const due = this.huntStaleFigures
+      ? [...deckCompanyIds].map((companyId) => ({ companyId, ...this.rehuntCandidates(companyId) }))
+        .filter((row) => row.types.size > 0)
+        .sort((a, b) => b.staleness - a.staleness)
+      : [];
     let looked = 0;
-    for (const companyId of this.huntStaleFigures ? deckCompanyIds : []) {
+    for (const { companyId } of due) {
       if (looked >= REFRESH_STALE_MAX_COMPANIES) break;
       try {
-        if (this.staleTypesOf(companyId).size === 0) continue;
         looked += 1;
         await this.huntCompanyMetrics(companyId, { refreshStale: true });
       } catch {
@@ -2939,16 +2951,40 @@ export class GeminiRepository implements MarketIntelRepository {
     });
   }
 
-  /** The metric types whose stored figure (current revision, assessed now) is due a fresh look: stale, undated,
-   * past its fresh window, or older than its re-hunt window (recency-rank.ts). Human figures are never targets. */
+  /** The metric types whose stored figure (current revision, assessed now) is due a fresh look: a fast-moving
+   * figure that is stale, undated, past its fresh window, or older than its re-hunt window (recency-rank.ts),
+   * and that no refresh re-hunted in the last REHUNT_COOLDOWN_DAYS. Human figures are never targets. */
   private staleTypesOf(companyId: string): Set<MetricType> {
+    return this.rehuntCandidates(companyId).types;
+  }
+
+  /** staleTypesOf, plus how out of date the company's oldest due figure is (undated counts as oldest). */
+  private rehuntCandidates(companyId: string): { types: Set<MetricType>; staleness: number } {
     const ctx = this.assessContext(companyId);
+    const nowMs = ctx.now.getTime();
     const rows = this.snap.metrics.filter((m) => m.companyId === companyId);
-    return new Set(METRIC_TYPES.filter((t) => {
+    const last = this.snap.staleRehuntAt?.[companyId] ?? {};
+    const types = new Set<MetricType>();
+    let staleness = -1;
+    for (const t of METRIC_TYPES) {
       const revision = currentMetricRevision(rows, companyId, t);
-      if (!revision || revision.ambiguous || revision.metric.confidence === 'user_verified') return false;
-      return rehuntDue(t, assessFigure(revision.metric, ctx)?.currency);
-    }));
+      if (!revision || revision.ambiguous || revision.metric.confidence === 'user_verified') continue;
+      const currency = assessFigure(revision.metric, ctx)?.currency;
+      if (!rehuntDue(t, currency)) continue;
+      const at = Date.parse(last[t] ?? '');
+      if (Number.isFinite(at) && nowMs - at < REHUNT_COOLDOWN_DAYS * 86_400_000) continue;
+      types.add(t);
+      staleness = Math.max(staleness, currency?.ageDays ?? Number.MAX_SAFE_INTEGER);
+    }
+    return { types, staleness };
+  }
+
+  /** Remember that a refresh re-hunted these figures, so the next refresh does not pay for them again. */
+  private markRehunted(companyId: string, types: Iterable<MetricType>): void {
+    const at = this.clock().toISOString();
+    const mine = { ...this.snap.staleRehuntAt?.[companyId] };
+    for (const t of types) mine[t] = at;
+    this.snap.staleRehuntAt = { ...this.snap.staleRehuntAt, [companyId]: mine };
   }
 
   /** The facts as the evidence supports them, before source binding hides or relinks any. */
@@ -5080,6 +5116,7 @@ export class GeminiRepository implements MarketIntelRepository {
     const profileTypes = profileHuntTypes(profile);
     // The dashboard refresh also re-hunts figures whose evidence is stale or undated.
     const staleTypes = options?.refreshStale && this.huntStaleFigures ? this.staleTypesOf(companyId) : new Set<MetricType>();
+    if (staleTypes.size) this.markRehunted(companyId, staleTypes);
     const softTypes: MetricType[] = profileTypes.filter((t) => {
       const current = currentMetricRevision(mine(), companyId, t);
       if (current?.ambiguous) return false;
@@ -5366,7 +5403,7 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     // The first gate-passing candidate of a metric is the one written (the revision guard stops
     // the rest), so try the newest credible dated report first, never just the model's first pick.
-    out.figures = orderFiguresNewestFirst(out.figures, company.websiteUrl);
+    out.figures = orderFiguresNewestFirst(out.figures, company.websiteUrl, this.clock().getTime());
     const filledTypes: MetricType[] = [];
 
     // A legacy label is not accepted evidence. Recheck the public projection

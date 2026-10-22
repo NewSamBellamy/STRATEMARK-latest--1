@@ -7,20 +7,24 @@
  * first one the model happened to list was written and the rest were discarded.
  * This orders them so the newest credible dated report is tried first:
  *
- *   1. A dated candidate always beats an undated one.
+ *   0. A date after today (plus one day of tolerance) is no date: it is read as undated.
+ *   1. A dated candidate beats an undated one when it is at least as credible (as in
+ *      compare-observations.ts); a dated weak page (Wikipedia) does not beat an undated
+ *      primary source.
  *   2. Between dated candidates the newer one wins when it is at least as credible.
- *   3. A newer candidate from a reputable non-primary publisher (a newspaper) beats an
- *      older PRIMARY one (the company itself or a regulator) only when the primary
- *      figure is more than RECENCY_OVERRIDE_DAYS older. Inside that window the
- *      company's own statement stands: press reports a few weeks later usually repeat
- *      or round the same event, or report talks that never closed.
- *   4. For fast-moving figures (RECENCY_SENSITIVE_TYPES: valuation, latest round, total
- *      raised, ARR) a newer but weaker candidate beats an older, stronger one when it is
- *      at least reputable ('acceptable') and the older one is more than
- *      RECENCY_OVERRIDE_DAYS older. A weak site (aggregator, unknown) never wins on date.
- *      Other figures keep the stronger source (a filed annual revenue is not displaced
- *      by a later press number, PLAN-CRAAP red-team case 8).
- *   5. Same date: the more credible wins, then the primary one, then the order given.
+ *   3. A recency OVERRIDE comes only from a newsroom (publisher tier 3: Reuters,
+ *      Bloomberg, FT, WSJ, CNBC and the like), never from a data aggregator (Crunchbase,
+ *      PitchBook, Tracxn), Wikipedia or an unknown site, for any metric:
+ *      a. a newsroom report beats an older PRIMARY one (the company itself or a
+ *         regulator) only when the primary figure is more than RECENCY_OVERRIDE_DAYS
+ *         older. Inside that window the company's own statement stands: press reports a
+ *         few weeks later usually repeat or round the same event, or report talks that
+ *         never closed;
+ *      b. for fast-moving figures (RECENCY_SENSITIVE_TYPES: valuation, latest round,
+ *         total raised, ARR) a newsroom report beats an older, more credible one (an SEC
+ *         Form D) past the same window. Other figures keep the stronger source (a filed
+ *         annual revenue is not displaced by a later press number, PLAN-CRAAP case 8).
+ *   4. Same date: the more credible wins, then the primary one, then the order given.
  *
  * Ordering only. It never creates, changes or averages a value (Rule 9): every
  * candidate still has to pass its own citation gate after this.
@@ -44,8 +48,10 @@ export interface RecencyCandidate {
   credibility: number;
   /** The company itself or a regulator. */
   primary: boolean;
-  /** A fast-moving figure (RECENCY_SENSITIVE_TYPES): a reputable newer report may displace a stronger stale one. */
+  /** A fast-moving figure (RECENCY_SENSITIVE_TYPES): a newsroom report may displace a stronger stale one. */
   fastMoving?: boolean;
+  /** Published by a newsroom (publisher tier 3). Only a newsroom may override on date. */
+  newsroom?: boolean;
 }
 
 /** Days from `older` to `newer` (both YYYY-MM-DD); null when either is not a real date. */
@@ -55,34 +61,38 @@ export function daysBetween(older: string, newer: string): number | null {
   return a == null || b == null ? null : (b - a) / DAY_MS;
 }
 
-const usableDate = (asOf: string | null): string | null => (asOf && isoDayMs(asOf) != null ? asOf : null);
+/** The date when it is a real calendar day no later than `nowMs` plus one day; otherwise null (undated). */
+export function usableDate(asOf: string | null | undefined, nowMs: number = Date.now()): string | null {
+  const ms = asOf ? isoDayMs(asOf) : null;
+  return asOf && ms != null && ms <= nowMs + DAY_MS ? asOf : null;
+}
 
-/** True when `a` should be tried before `b`. */
-export function beats(a: RecencyCandidate, b: RecencyCandidate): boolean {
-  const da = usableDate(a.asOf);
-  const db = usableDate(b.asOf);
-  if (da && !db) return true;
-  if (!da && db) return false;
+/** True when `a` should be tried before `b`. `nowMs` is the clock future dates are judged by. */
+export function beats(a: RecencyCandidate, b: RecencyCandidate, nowMs: number = Date.now()): boolean {
+  const da = usableDate(a.asOf, nowMs);
+  const db = usableDate(b.asOf, nowMs);
+  if (da && !db) return a.credibility >= b.credibility;
+  if (!da && db) return a.credibility > b.credibility;
   if (!da && !db) return a.credibility > b.credibility;
   if (da === db) return a.credibility > b.credibility || (a.credibility === b.credibility && a.primary && !b.primary);
   const aNewer = da! > db!;
   const newer = aNewer ? a : b;
   const older = aNewer ? b : a;
-  const gap = daysBetween(usableDate(older.asOf)!, usableDate(newer.asOf)!) ?? 0;
-  const pastWindow = gap > RECENCY_OVERRIDE_DAYS;
+  const gap = daysBetween(usableDate(older.asOf, nowMs)!, usableDate(newer.asOf, nowMs)!) ?? 0;
+  const override = gap > RECENCY_OVERRIDE_DAYS && newer.newsroom === true;
   const newerWins = newer.credibility >= older.credibility
-    ? !(older.primary && !newer.primary) || pastWindow
-    : pastWindow && newer.fastMoving === true && newer.credibility >= 2;
+    ? !(older.primary && !newer.primary) || override
+    : override && newer.fastMoving === true && newer.credibility >= 2;
   return aNewer ? newerWins : !newerWins;
 }
 
 /** The candidates in the order they should be tried: best first. Stable for ties. */
-export function rankNewestCredible<T>(items: readonly T[], view: (item: T) => RecencyCandidate): T[] {
+export function rankNewestCredible<T>(items: readonly T[], view: (item: T) => RecencyCandidate, nowMs: number = Date.now()): T[] {
   const left = items.map((item) => ({ item, view: view(item) }));
   const out: T[] = [];
   while (left.length) {
     let best = 0;
-    for (let i = 1; i < left.length; i += 1) if (beats(left[i]!.view, left[best]!.view)) best = i;
+    for (let i = 1; i < left.length; i += 1) if (beats(left[i]!.view, left[best]!.view, nowMs)) best = i;
     out.push(left.splice(best, 1)[0]!.item);
   }
   return out;
@@ -97,10 +107,14 @@ export function rankNewestCredible<T>(items: readonly T[], view: (item: T) => Re
 export const REHUNT_AFTER_DAYS: Readonly<Partial<Record<MetricType, number>>> =
   Object.fromEntries(RECENCY_SENSITIVE_TYPES.map((t) => [t, 180]));
 
-/** Whether a refresh should look for a newer figure: stale, undated, past its fresh
- * window ('aging'), or older than its REHUNT_AFTER_DAYS. */
+/** A figure a refresh already looked for again is not paid for again within this many days. */
+export const REHUNT_COOLDOWN_DAYS = 30;
+
+/** Whether a refresh should look for a newer figure. Only the fast-moving figures
+ * (RECENCY_SENSITIVE_TYPES) qualify, and only when stale, undated, past their fresh window
+ * ('aging'), or older than REHUNT_AFTER_DAYS. */
 export function rehuntDue(metricType: MetricType, currency: { state: string; ageDays: number | null } | null | undefined): boolean {
-  if (!currency) return false;
+  if (!currency || !RECENCY_SENSITIVE_TYPES.includes(metricType)) return false;
   if (currency.state === 'stale' || currency.state === 'undated' || currency.state === 'aging') return true;
   const window = REHUNT_AFTER_DAYS[metricType];
   return window != null && currency.ageDays != null && currency.ageDays > window;
@@ -112,9 +126,10 @@ const FIT_RANK = { strong: 3, acceptable: 2, weak: 1 } as const;
 export function sourceCandidate(metricType: MetricType, sourceUrl: string | null | undefined, asOf: string | null | undefined,
   officialWebsite?: string | null): RecencyCandidate {
   const fastMoving = RECENCY_SENSITIVE_TYPES.includes(metricType);
-  if (!sourceUrl) return { asOf: asOf ?? null, credibility: 0, primary: false, fastMoving };
+  if (!sourceUrl) return { asOf: asOf ?? null, credibility: 0, primary: false, fastMoving, newsroom: false };
   const tier = publisherTier(sourceUrl, officialWebsite);
-  return { asOf: asOf ?? null, credibility: FIT_RANK[publisherFit(tier, metricType)], primary: tier === 1 || tier === 2, fastMoving };
+  return { asOf: asOf ?? null, credibility: FIT_RANK[publisherFit(tier, metricType)], primary: tier === 1 || tier === 2, fastMoving,
+    newsroom: tier === 3 };
 }
 
 /**
@@ -123,8 +138,8 @@ export function sourceCandidate(metricType: MetricType, sourceUrl: string | null
  * candidate of a metric that passes its gates, so this decides which report wins.
  */
 export function orderFiguresNewestFirst<F extends { metricType: MetricType; passageSupport?: { sourceUrl: string; asOf?: string | null } | null }>(
-  figures: readonly F[], officialWebsite?: string | null): F[] {
+  figures: readonly F[], officialWebsite?: string | null, nowMs: number = Date.now()): F[] {
   const types = [...new Set(figures.map((f) => f.metricType))];
   return types.flatMap((type) => rankNewestCredible(figures.filter((f) => f.metricType === type),
-    (f) => sourceCandidate(type, f.passageSupport?.sourceUrl, f.passageSupport?.asOf ?? null, officialWebsite)));
+    (f) => sourceCandidate(type, f.passageSupport?.sourceUrl, f.passageSupport?.asOf ?? null, officialWebsite), nowMs));
 }
