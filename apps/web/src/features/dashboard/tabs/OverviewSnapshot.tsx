@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useIsFetching } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
@@ -6,13 +6,16 @@ import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { useTabHref } from '../dashboardKit';
 import { TabSection } from './TabKit';
-import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact, peerTable } from '../snapshot';
+import { fundingSnapshot, leadershipSnapshot, newsMood, formatUsdCompact, peerTable, type PeerCell, type PeerRow } from '../snapshot';
+import { barPercent } from '../dashboardModel';
 import { shortCompanyName } from '../companyNames';
 import { deriveInvestors } from '@mi/contracts';
 import { unifyFunding } from '../funding';
 import { UnknownInline } from '@/features/card/UnknownValue';
 import { Logo } from '@/features/card/Logo';
-import { WikiAvatar } from './LeaderGrid';
+import { initialsOf, photoCredit, useWikiHeadshot } from './LeaderGrid';
+import { safeHttpUrl } from '@/lib/sourceHref';
+import type { OrgNode } from '@mi/contracts';
 import { usePeers } from '../usePeers';
 import { storiesCaption } from '../overviewTruth';
 
@@ -38,6 +41,30 @@ function PanelHead({ title, to, label }: { title: string; to: string; label: str
         {label} <ArrowRight className="h-3 w-3" aria-hidden />
       </Link>
     </div>
+  );
+}
+
+/**
+ * A leader's face: the photo the research stored with the person, else a Wikipedia
+ * portrait verified against the person and company, else their initials. Never a stock
+ * or generated picture.
+ */
+export function LeaderFace({ person, companyName }: { person: Pick<OrgNode, 'name' | 'photoUrl'>; companyName: string }) {
+  const supplied = safeHttpUrl(person.photoUrl);
+  const [suppliedFailed, setSuppliedFailed] = useState(false);
+  const wiki = useWikiHeadshot(person.name, companyName);
+  const [wikiFailed, setWikiFailed] = useState(false);
+  const src = supplied && !suppliedFailed ? supplied : wiki && !wikiFailed ? wiki.thumb : null;
+  return (
+    <span className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-surface-2">
+      {src ? (
+        <img src={src} alt="" title={src === supplied ? undefined : wiki ? photoCredit(wiki) : undefined} loading="lazy" decoding="async"
+          referrerPolicy="no-referrer" className="h-full w-full object-cover"
+          onError={() => (src === supplied ? setSuppliedFailed(true) : setWikiFailed(true))} />
+      ) : (
+        <span className="font-display text-[13px] font-semibold tracking-wide text-muted" aria-hidden>{initialsOf(person.name)}</span>
+      )}
+    </span>
   );
 }
 
@@ -96,10 +123,10 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
         {leaders.length > 0 && (
           <div className="panel min-w-0 p-5">
             <PanelHead title="Leadership" to={href('team_org')} label="Team & org" />
-            <ul className={cn('grid gap-x-6 gap-y-2.5', leadersWide && 'xl:grid-cols-2')}>
+            <ul className={cn('grid gap-x-6 gap-y-3', leadersWide && 'xl:grid-cols-2')}>
               {leaders.map((person) => (
-                <li key={person.id} className="flex min-w-0 items-center gap-2.5">
-                  <WikiAvatar name={person.name} companyName={companyName} size="sm" />
+                <li key={person.id} className="flex min-w-0 items-center gap-3">
+                  <LeaderFace person={person} companyName={companyName} />
                   <div className="min-w-0">
                     <p className="truncate text-[13px] font-medium text-content" title={person.name}>{person.name}</p>
                     <p className="truncate text-[11.5px] text-muted" title={person.role}>{person.role}</p>
@@ -167,6 +194,31 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
 
 const PEER_COLUMNS = [['valuation', 'Valuation'], ['arr', 'Revenue / ARR'], ['employees', 'Employees']] as const;
 
+export interface ColumnScale { max: number; count: number; rankOf: (cell: PeerCell | null | undefined) => number | null }
+
+/**
+ * Per column: the largest comparable figure (for the bars) and each figure's place among
+ * the comparable ones. Only known figures on the same basis take part; a figure in another
+ * currency and a missing one get no bar and no place. `lead` is the column the table is
+ * ordered by (the first with a comparable figure).
+ */
+export function columnScales(table: readonly PeerRow[]): ColumnScale[] & { lead: number } {
+  const width = table[0]?.cells.length ?? 0;
+  const scales = Array.from({ length: width }, (_, i): ColumnScale => {
+    const values = table.flatMap((row) => {
+      const cell = row.cells[i];
+      return cell && !cell.currency ? [cell.value] : [];
+    });
+    return {
+      max: values.length ? Math.max(...values) : 0,
+      count: values.length,
+      rankOf: (cell) => (cell && !cell.currency ? values.filter((v) => v > cell.value).length + 1 : null),
+    };
+  });
+  const lead = Math.max(0, scales.findIndex((scale) => scale.count > 0));
+  return Object.assign(scales, { lead });
+}
+
 /**
  * The deck this dashboard was opened from, side by side on a few headline
  * figures (known ones only; estimates are marked), or, when too little is
@@ -174,12 +226,14 @@ const PEER_COLUMNS = [['valuation', 'Valuation'], ['arr', 'Revenue / ARR'], ['em
  */
 export function MarketPeers({ companyId }: { companyId: string }) {
   const [params] = useSearchParams();
+  const href = useTabHref(companyId);
   const peers = usePeers();
   const table = useMemo(
     () => peerTable(companyId, peers.peers, PEER_COLUMNS.map(([type]) => type)),
     [companyId, peers.peers],
   );
   const others = peers.peers.filter((peer) => peer.companyId !== companyId);
+  const metricsHref = href('metrics');
   if (peers.status !== 'ready' || others.length === 0) return null;
   const to = (peerId: string) => {
     const next = new URLSearchParams(params);
@@ -187,44 +241,82 @@ export function MarketPeers({ companyId }: { companyId: string }) {
     return `/company/${peerId}/dashboard/overview?${next.toString()}`;
   };
   if (table) {
+    const columns = columnScales(table);
+    const selfRow = table.find((row) => row.isSelf);
+    // The first rows by size, and always this company's own row (marked) wherever it falls.
+    const shown = table.slice(0, 12);
+    if (selfRow && !shown.includes(selfRow)) shown.push(selfRow);
+    const standing = PEER_COLUMNS.flatMap(([type, label], i) => {
+      const scale = columns[i]!;
+      const rank = selfRow ? scale.rankOf(selfRow.cells[i]) : null;
+      return rank && scale.count > 1 ? [{ type, label: label.toLowerCase(), rank, of: scale.count }] : [];
+    });
+    const leadLabel = PEER_COLUMNS[columns.lead]![1].toLowerCase();
     return (
-      <TabSection title="How they compare" hint="This deck on three headline figures. A dash means no sourced figure yet, never zero. A figure in another currency is shown as reported and left out of the order.">
+      <TabSection title="How they compare" hint="This deck on three headline figures. Bars are drawn against the largest sourced figure in the deck. A dash means no sourced figure yet, never zero. A figure in another currency is shown as reported and left out of the order."
+        action={<Link to={metricsHref} className="inline-flex items-center gap-1 text-[12px] text-primary-ink hover:underline">All figures and peers <ArrowRight className="h-3 w-3" aria-hidden /></Link>}>
+        {standing.length > 0 && (
+          <ul className="mb-3 flex flex-wrap gap-2" aria-label="Where this company places in the deck">
+            {standing.map((place) => (
+              <li key={place.type} className="inline-flex items-baseline gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12.5px] text-muted">
+                <span className="font-display text-[15px] font-semibold tabular-nums text-content">#{place.rank}</span>
+                of {place.of} by {place.label}
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="panel overflow-x-auto">
-          <table className="w-full min-w-[420px] border-collapse text-[13px]">
+          <table className="w-full min-w-[480px] border-collapse text-[13px]">
             <caption className="sr-only">Companies in this deck compared on valuation, revenue and employees</caption>
             <thead>
-              <tr className="border-b border-border bg-surface-2/50 text-left text-[10.5px] uppercase tracking-[0.1em] text-muted">
-                <th scope="col" className="px-3 py-2 font-semibold">Company</th>
-                {PEER_COLUMNS.map(([type, label]) => <th key={type} scope="col" className="px-3 py-2 text-right font-semibold">{label}</th>)}
+              <tr className="border-b border-border bg-surface-2/50 text-left text-[11px] text-muted">
+                <th scope="col" className="w-10 px-3 py-2 text-right font-medium"><span className="sr-only">Place by {leadLabel}</span><span aria-hidden>#</span></th>
+                <th scope="col" className="px-3 py-2 font-medium">Company</th>
+                {PEER_COLUMNS.map(([type, label]) => <th key={type} scope="col" className="px-3 py-2 text-right font-medium">{label}</th>)}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {table.slice(0, 12).map((row) => (
-                <tr key={row.companyId} className={cn(row.isSelf && 'bg-primary/5')} aria-current={row.isSelf ? 'true' : undefined}>
-                  <th scope="row" className="px-3 py-2 text-left font-medium text-content">
-                    {row.isSelf
-                      ? <span className="inline-flex items-center gap-2">{shortCompanyName(row.name)} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
-                      : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline">{shortCompanyName(row.name)}</Link>}
-                  </th>
-                  {row.cells.map((cell, i) => (
-                    <td key={PEER_COLUMNS[i]![0]} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                      {cell
-                        ? <>{cell.display}
-                          {cell.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}
-                          {cell.currency && (
-                            <abbr className="ml-1 text-[10px] text-faint no-underline" title={cell.converted ? `Converted from ${cell.currency}; rate date not recorded. Not ranked.` : `Reported in ${cell.currency}; not converted to US dollars. Not ranked.`}>
-                              {cell.converted ? `from ${cell.currency}` : cell.currency}
-                            </abbr>
-                          )}</>
-                        : <span className="text-faint" aria-label="not found yet">—</span>}
-                    </td>
-                  ))}
-                </tr>
-              ))}
+              {shown.map((row) => {
+                const place = columns[columns.lead]!.rankOf(row.cells[columns.lead]);
+                return (
+                  <tr key={row.companyId} className={cn(row.isSelf && 'bg-primary/5')} aria-current={row.isSelf ? 'true' : undefined}>
+                    <td className="px-3 py-2 text-right text-[12px] tabular-nums text-faint">{place ?? <span aria-label="not placed">—</span>}</td>
+                    <th scope="row" className="px-3 py-2 text-left font-medium text-content">
+                      {row.isSelf
+                        ? <span className="inline-flex items-center gap-2">{shortCompanyName(row.name)} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
+                        : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline">{shortCompanyName(row.name)}</Link>}
+                    </th>
+                    {row.cells.map((cell, i) => {
+                      const scale = columns[i]!;
+                      const bar = cell && !cell.currency && scale.max > 0 ? barPercent(cell.value, scale.max) : null;
+                      const rank = scale.rankOf(cell);
+                      return (
+                        <td key={PEER_COLUMNS[i]![0]} className="whitespace-nowrap px-3 py-2 text-right tabular-nums"
+                          title={rank ? `#${rank} of ${scale.count} by ${PEER_COLUMNS[i]![1].toLowerCase()} in this deck` : undefined}>
+                          {cell
+                            ? <>{cell.display}
+                              {cell.confidence === 'estimated' && <span className="ml-1 text-[10px] text-faint">est.</span>}
+                              {cell.currency && (
+                                <abbr className="ml-1 text-[10px] text-faint no-underline" title={cell.converted ? `Converted from ${cell.currency}; rate date not recorded. Not ranked.` : `Reported in ${cell.currency}; not converted to US dollars. Not ranked.`}>
+                                  {cell.converted ? `from ${cell.currency}` : cell.currency}
+                                </abbr>
+                              )}
+                              {bar != null && (
+                                <span className="ml-auto mt-1 flex h-[3px] w-full max-w-[120px] justify-end overflow-hidden rounded-full bg-border/50" aria-hidden data-testid="peer-bar">
+                                  <span className={cn('block h-full rounded-full', row.isSelf ? 'bg-primary' : 'bg-content/30', cell.confidence === 'estimated' && 'opacity-60')} style={{ width: `${bar}%` }} />
+                                </span>
+                              )}</>
+                            : <span className="text-faint" aria-label="not found yet">—</span>}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-        {table.length > 12 && <p className="mt-1.5 text-[11.5px] text-faint">Showing 12 of {table.length}. All figures and peers are on the Metrics tab.</p>}
+        {table.length > shown.length && <p className="mt-1.5 text-[11.5px] text-faint">Showing {shown.length} of {table.length}. All figures and peers are on the Metrics tab.</p>}
       </TabSection>
     );
   }
