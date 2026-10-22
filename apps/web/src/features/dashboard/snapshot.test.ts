@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import type { CompanyMetric, OrgNode } from '@mi/contracts';
-import { foundedYear, fundingSnapshot, reportsToSec, secFilingsUrl, leadershipSnapshot, newsMood, peerTable, reportedDateMs, roundsNewestFirst } from './snapshot';
+import { formatUsdCompact, foundedYear, fundingSnapshot, reportsToSec, secFilingsUrl, leadershipSnapshot, newsMood, peerTable, reportedDateMs, roundsNewestFirst } from './snapshot';
 
 const round = (name: string, date: string | null, leads: string[] = [], amountUsd: number | null = null) =>
   ({ round: name, date, leadInvestors: leads, amountUsd });
 const person = (name: string, role: string, group: OrgNode['group'] = 'exec', parentId: string | null = null): OrgNode =>
   ({ id: name, name, role, group, parentId, bio: '' });
+
+describe('compact dollars (red-team M2)', () => {
+  it('keeps a decimal below $100M so a $4.5M round never reads as $5M', () => {
+    expect(formatUsdCompact(4.5e6)).toBe('$4.5M');
+    expect(formatUsdCompact(52.3e6)).toBe('$52.3M');
+    expect(formatUsdCompact(5e6)).toBe('$5M');
+    expect(formatUsdCompact(105e6)).toBe('$105M');
+    expect(formatUsdCompact(800e6)).toBe('$800M');
+    expect(formatUsdCompact(1.2e9)).toBe('$1.2B');
+    expect(formatUsdCompact(750_000)).toBe('$750,000');
+  });
+});
 
 describe('reported dates', () => {
   it.each([

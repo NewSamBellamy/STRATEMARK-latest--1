@@ -8,6 +8,7 @@ import type { MissionGovernanceContent } from '@mi/contracts';
 import { chartTheme, tint } from '@/lib/theme';
 import { useTheme } from '@/lib/settings/theme';
 import { useWidth } from './metricViz';
+import { formatUsdCompact } from '../snapshot';
 
 type Round = NonNullable<MissionGovernanceContent['fundingRounds']>[number];
 
@@ -41,11 +42,7 @@ export function fundingPoints(rounds: readonly Round[] | undefined): FundingPoin
   return out.sort((a, b) => a.t - b.t);
 }
 
-function fmt(v: number): string {
-  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
-  return `$${Math.round(v).toLocaleString()}`;
-}
+const fmt = formatUsdCompact;
 
 export function FundingChart({ rounds }: { rounds: readonly Round[] | undefined }) {
   const points = fundingPoints(rounds);

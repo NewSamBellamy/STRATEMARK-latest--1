@@ -46,7 +46,11 @@ export function reportedDateMs(text: string | null | undefined): number | null {
 export function formatUsdCompact(value: number): string {
   if (value >= 1e12) return `$${(value / 1e12).toFixed(1)}T`;
   if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-  if (value >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
+  if (value >= 1e6) {
+    // One decimal below $100M so a $4.5M round never reads as $5M; whole millions above it.
+    const millions = value / 1e6;
+    return `$${millions < 100 ? millions.toFixed(1).replace(/\.0$/, '') : millions.toFixed(0)}M`;
+  }
   return `$${Math.round(value).toLocaleString()}`;
 }
 
