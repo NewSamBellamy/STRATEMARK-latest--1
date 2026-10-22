@@ -16,9 +16,10 @@ export function shareIdFromSearch(search: string): string | null {
 
 export type RemoteShareResult =
   | { ok: true; snapshot: ShareSnapshot }
-  | { ok: false; reason: 'gone' | 'unreachable' | 'unreadable'; message: string };
+  | { ok: false; reason: 'gone' | 'busy' | 'unreachable' | 'unreadable'; message: string };
 
 const MESSAGES = {
+  busy: 'This link has been opened a lot in the last minute. Wait a minute, then reload this page.',
   gone: 'Shared research expires after a while, and its owner can stop sharing it. Ask whoever sent it for a fresh link.',
   unreachable: 'The shared research could not be loaded. Check your connection and reload this page.',
   unreadable: 'This shared page could not be opened: its research is not in a form this page can read.',
@@ -36,6 +37,7 @@ export async function loadRemoteShare(id: string, apiUrl: string, fetcher: typeo
     return { ok: false, reason: 'unreachable', message: MESSAGES.unreachable };
   }
   if (response.status === 404) return { ok: false, reason: 'gone', message: MESSAGES.gone };
+  if (response.status === 429) return { ok: false, reason: 'busy', message: MESSAGES.busy };
   if (!response.ok) return { ok: false, reason: 'unreachable', message: MESSAGES.unreachable };
   try {
     const body = await response.json() as { data?: unknown };
