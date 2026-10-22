@@ -166,7 +166,7 @@ test('a shared deck opens on the deck and walks deck -> card -> dashboard', asyn
     await expect(viewer.getByRole('button', { name: /^Ask|Share & export|More actions/ })).toHaveCount(0);
     await viewer.getByTestId('card-grid').getByRole('button', { name: /OpenAI — Company card/ }).first().click();
     const dialog = viewer.getByRole('dialog');
-    await expect(dialog.getByRole('region', { name: 'Core company figures' })).toBeVisible();
+    await expect(dialog.getByRole('region', { name: 'Company summary' })).toBeVisible();
     await dialog.getByRole('link', { name: /open full company dashboard/i }).click();
     await expect(viewer.getByRole('heading', { name: 'Key figures' })).toBeVisible();
     const overflow = await viewer.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

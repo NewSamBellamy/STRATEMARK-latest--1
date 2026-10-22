@@ -56,7 +56,7 @@ describe('CardReader', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
     const dialog = within(screen.getByRole('dialog'));
-    const facts = dialog.getByRole('region', { name: 'Core company figures' });
+    const facts = dialog.getByRole('region', { name: 'Company summary' });
 
     expect(dialog.queryByRole('tab')).not.toBeInTheDocument();
     expect(facts).toHaveTextContent('Employees');
@@ -115,16 +115,16 @@ describe('CardReader', () => {
     };
     renderWithProviders(<CardReader data={sourced} open onOpenChange={() => {}} />);
     const dialog = within(screen.getByRole('dialog'));
-    const facts = dialog.getByRole('region', { name: 'Core company figures' });
+    const facts = dialog.getByRole('region', { name: 'Company summary' });
 
     expect(dialog.getByRole('link', { name: /source for employees: annual filing/i })).toHaveAttribute(
       'href', 'https://sec.gov/Archives/report',
     );
-    expect(facts).toHaveTextContent('Primary source');
-    expect(facts).toHaveTextContent('Recorded 29 Sep 2026');
+    expect(facts).toHaveTextContent('from a primary source');
+    expect(facts).toHaveTextContent('recorded 29 Sep 2026');
     expect(facts).not.toHaveTextContent('$40B');
     expect(facts).not.toHaveTextContent('$500B');
-    expect(facts).toHaveTextContent('No source-backed figure');
+    expect(facts).toHaveTextContent('No sourced figure was found yet for');
   });
 
   it('shows a provider-attributed figure without calling it original-verified', () => {
@@ -140,11 +140,11 @@ describe('CardReader', () => {
         support: { supportIndex: 0, text: `${companyName} reported 123 employees as of October 1, 2026.`,
           sources: [{ chunkIndex: 0, url, title: 'Annual filing' }] } },
     }] }} open onOpenChange={() => {}} />);
-    const facts = within(screen.getByRole('dialog')).getByRole('region', { name: 'Core company figures' });
+    const facts = within(screen.getByRole('dialog')).getByRole('region', { name: 'Company summary' });
     expect(facts).toHaveTextContent('123');
-    expect(facts).toHaveTextContent('Source reported · not verified');
-    expect(facts).toHaveTextContent('Figure dated 2026-10-01');
-    expect(facts).not.toHaveTextContent('Human checked');
+    expect(facts).toHaveTextContent('source-reported and not independently verified');
+    expect(facts).toHaveTextContent('dated 1 Oct 2026');
+    expect(facts).not.toHaveTextContent('checked by a person');
   });
 
   it('keeps claims on vice cards attributed and visible without an Evidence tab', () => {
@@ -155,7 +155,7 @@ describe('CardReader', () => {
     expect(dialog.getByText(/quoted from its source/i)).toBeInTheDocument();
     expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeInTheDocument();
     expect(dialog.queryByRole('link', { name: /open full company dashboard/i })).not.toBeInTheDocument();
-    expect(dialog.queryByRole('region', { name: 'Core company figures' })).not.toBeInTheDocument();
+    expect(dialog.queryByRole('region', { name: 'Company summary' })).not.toBeInTheDocument();
     const sources = dialog.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('http'));
     expect(sources.length).toBeGreaterThan(0);
   });
@@ -165,7 +165,7 @@ describe('CardReader', () => {
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.getByRole('region', { name: 'Research finding' })).toBeInTheDocument();
-    expect(dialog.queryByRole('region', { name: 'Core company figures' })).not.toBeInTheDocument();
+    expect(dialog.queryByRole('region', { name: 'Company summary' })).not.toBeInTheDocument();
     expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeInTheDocument();
     expect(dialog.queryByRole('link', { name: /open full company dashboard/i })).not.toBeInTheDocument();
   });

@@ -1,9 +1,8 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { formatDate } from '@/lib/format';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, ArrowRight, ArrowUpRight, ExternalLink, FilePlus2, Printer, Share2 } from 'lucide-react';
-import { publisherOf, type CardWithCompany } from '@mi/contracts';
+import type { CardWithCompany } from '@mi/contracts';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/Modal';
 import { useMarket, useRemoveCard } from '@/hooks/data';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
@@ -19,7 +18,8 @@ import { CardStage } from './CardStage';
 import { SaveCardButton } from './GameCard';
 import { SignalFinding } from './SignalFinding';
 import { SignalBriefBody, sourcedPoints, useSignalBrief } from './SignalBriefView';
-import { buildCardView, faceFigureStatus, sourceUrl } from './card-view';
+import { buildCardView, sourceUrl } from './card-view';
+import { buildCompanySummary } from './companySummary';
 import { printScoped } from '@/lib/print';
 import { useReadOnly } from '@/lib/readOnly';
 import { sourceHref } from '@/lib/sourceHref';
@@ -35,7 +35,6 @@ type Props = {
   returnFocusTo?: (cardId: string) => HTMLElement | null;
 };
 
-const capturedDate = { format: (d: Date) => formatDate(d) };
 const pendingCompanySnapshot = 'No source-backed company snapshot is ready yet.';
 
 export function CardReader({ data, open, returnFocusTo, ...props }: Props) {
@@ -117,6 +116,10 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
   const companySite = sourceUrl(company?.websiteUrl);
   const summary = card.summary?.trim() || view.description?.trim();
   const summarySources = (card.citations ?? []).filter((citation) => sourceUrl(citation.url)).slice(0, 2);
+  const companySummary = view.signal ? null : buildCompanySummary({
+    name: view.title, summary, hqLocation: company?.hqLocation, foundedYear: company?.founded?.year ?? null,
+    items: view.faceMetrics, descriptionSources: summarySources,
+  });
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent size="2xl" className="card-inspector"
@@ -136,60 +139,25 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           <h2 className="mt-3 font-display text-2xl font-semibold leading-tight text-content">{view.title}</h2>
           {company?.hqLocation && <p className="mt-1 text-[11px] text-muted">{company.hqLocation}</p>}
 
-          {view.signal ? <>{briefShown ? <SignalBriefBody controls={briefControls} /> : <><SignalFinding data={data} citations={view.citations} /><SignalBriefBody controls={briefControls} /></>}</> : <section className="card-inspector__summary" aria-label="Research summary">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Company snapshot</p>
-            <p className="card-inspector__summary-text text-[13px] leading-relaxed text-content">
-              {summary || 'No concise research summary has been recorded for this card.'}
+          {view.signal ? <>{briefShown ? <SignalBriefBody controls={briefControls} /> : <><SignalFinding data={data} citations={view.citations} /><SignalBriefBody controls={briefControls} /></>}</> : <section className="card-inspector__summary" aria-label="Company summary">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Summary</p>
+            <p className="card-inspector__prose">
+              {companySummary?.sentences.map((sentence, index) => <span key={index}>{sentence}{' '}</span>)}
             </p>
-            {companySite && <a className="card-inspector__site" href={companySite} target="_blank" rel="noopener noreferrer">
-              Company website <ExternalLink size={11} aria-hidden="true" />
-            </a>}
-            {summarySources.length > 0 ? <div className="card-inspector__summary-sources">
-              <span>Related sources</span>
-              {summarySources.map((citation) => <a key={citation.url} href={sourceHref(citation.url, citation.title)}
-                target="_blank" rel="noopener noreferrer">
-                {publisherOf(citation.url, citation.title)} <ExternalLink size={10} aria-hidden="true" />
+            {companySummary && (companySummary.sources.length > 0 || companySite) && <div className="card-inspector__summary-sources">
+              <span>Sources</span>
+              {companySummary.sources.map((source) => <a key={source.url} href={sourceHref(source.url, source.title)}
+                target="_blank" rel="noopener noreferrer"
+                aria-label={source.labels.length > 0 ? `Source for ${source.labels.join(', ')}: ${source.publisher}` : `Source: ${source.publisher}`}>
+                {source.publisher} <ExternalLink size={10} aria-hidden="true" />
               </a>)}
-            </div> : summary && summary !== pendingCompanySnapshot && <span className="card-inspector__summary-warning">
+              {companySite && <a href={companySite} target="_blank" rel="noopener noreferrer">
+                Company website <ExternalLink size={10} aria-hidden="true" />
+              </a>}
+            </div>}
+            {summary && summary !== pendingCompanySnapshot && summarySources.length === 0 && <span className="card-inspector__summary-warning">
               No source receipt is attached to this summary.
             </span>}
-          </section>}
-
-          {!view.signal && <section className="card-inspector__fact-section" aria-label="Core company figures">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Core company figures</p>
-              <span className="text-[9px] text-muted">Source receipts</span>
-            </div>
-            <ul className="card-inspector__facts">
-              {view.faceMetrics.map((item) => {
-                const metric = item.metric;
-                const citation = item.citations[0];
-                const status = faceFigureStatus(item);
-                const date = metric ? new Date(metric.capturedAt) : null;
-                const formattedDate = date && Number.isFinite(date.getTime()) ? capturedDate.format(date) : null;
-
-                return <li className="card-inspector__fact" key={`${item.key}-${item.label}`}>
-                  <span className="card-inspector__fact-label">{item.label}</span>
-                  <strong className="card-inspector__fact-value">{item.display}</strong>
-                  <div className="card-inspector__fact-meta">
-                    <span>{status}</span>
-                    {citation && <a href={sourceHref(citation.url, citation.title)} target="_blank" rel="noopener noreferrer"
-                      aria-label={`Source for ${item.label}: ${publisherOf(citation.url, citation.title)}`}>
-                      <span>{publisherOf(citation.url, citation.title)}</span><ExternalLink size={10} aria-hidden="true" />
-                    </a>}
-                    {formattedDate && <time dateTime={metric!.capturedAt}>Recorded {formattedDate}</time>}
-                    {metric?.quotedSupport && <span>Figure dated {metric.quotedSupport.asOf} · quoted from the page</span>}
-                    {metric?.reportedSupport && <span>{metric.reportedSupport.asOf
-                      ? `Figure dated ${metric.reportedSupport.asOf}` : 'Reporting date unavailable'}</span>}
-                    {metric?.reportedBand && <span>{metric.reportedBand.asOf
-                      ? `Range dated ${metric.reportedBand.asOf}` : 'Reporting date unavailable'}</span>}
-                  </div>
-                </li>;
-              })}
-            </ul>
-            <p className="card-inspector__trust-note">
-              Source-reported figures have search attribution, not independent verification. Unsupported estimates stay unknown.
-            </p>
           </section>}
 
           {/* Route departure unmounts the reader. Closing it separately also

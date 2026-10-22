@@ -70,7 +70,7 @@ test('3. Lanes switch; company and signal readers show sourced content; Next/Pre
 
   // Company reader.
   await grid.getByRole('button', { name: / — Company card/ }).first().click();
-  await expect(dialog.getByRole('region', { name: 'Core company figures' })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Company summary' })).toBeVisible();
   await expect(dialog.getByRole('heading').first()).toBeVisible();
   await expect(dialog.getByRole('link', { name: /open full company dashboard/i })).toBeVisible();
   await expect(dialog.locator('a[href^="http"]').first()).toBeVisible(); // a source link

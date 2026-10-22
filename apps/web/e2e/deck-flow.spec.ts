@@ -26,7 +26,7 @@ test('full journey: markets → deck → 2-level split → card reader → dashb
   await page.getByTestId('card-grid').getByRole('button', { name: /OpenAI — Company card/ }).first().click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('tab')).toHaveCount(0);
-  await expect(dialog.getByRole('region', { name: 'Core company figures' })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'Company summary' })).toBeVisible();
   await dialog.getByRole('link', { name: /open full company dashboard/i }).click();
 
   // Dashboard tabs.
@@ -50,7 +50,7 @@ test('culture and vice tabs open signal research instead of company dashboards',
   let dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('region', { name: 'Research finding' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeVisible();
-  await expect(dialog.getByRole('region', { name: 'Core company figures' })).toHaveCount(0);
+  await expect(dialog.getByRole('region', { name: 'Company summary' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Close' }).click();
 
   await nav.getByRole('button', { name: /Vice/ }).click();
@@ -61,7 +61,7 @@ test('culture and vice tabs open signal research instead of company dashboards',
   dialog = page.getByRole('dialog');
   await expect(dialog.getByText(/quoted from its source/i)).toBeVisible();
   await expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeVisible();
-  await expect(dialog.getByRole('region', { name: 'Core company figures' })).toHaveCount(0);
+  await expect(dialog.getByRole('region', { name: 'Company summary' })).toHaveCount(0);
 });
 
 test('new deck flow without a key shows the honest gate — never fabricates research', async ({ page }) => {

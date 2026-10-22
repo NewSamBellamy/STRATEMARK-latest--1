@@ -934,3 +934,10 @@
   font-size: 11.5px;
   line-height: 1.45;
 }
+
+/* The reader's company summary: a short paragraph, no boxes. */
+.card-inspector__prose {
+  color: rgb(var(--c-content));
+  font-size: 14px;
+  line-height: 1.7;
+}
