@@ -14,12 +14,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CompanyMetric, MetricType, TimePoint } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { formatMetricValue } from '@/lib/format';
-import { METRIC_COLORS } from '@/lib/theme';
 import type { PeerRanking } from '../dashboardModel';
 import { figureDisplay } from '../figureSet';
 import { figureCurrency, withReportedCurrency } from '../figureCurrency';
 import { metricLabel } from '../dashboardKit';
-import { ChartPanel, Delta, TrendArea, TrendBar, TrendLine } from './metricViz';
+import { ChartPanel, Delta, TrendArea, TrendBar, TrendLine, useChartAccent } from './metricViz';
 
 export interface ExplorerRow {
   metric: CompanyMetric;
@@ -84,7 +83,7 @@ export function ExplorerValue({ type, value, metric }: { type: MetricType; value
 export function History({ type, history }: { type: MetricType; history: ReturnType<typeof historyFor> }) {
   const [which, setWhich] = useState(history[0]?.key ?? '');
   const active = history.find((h) => h.key === which) ?? history[0]!;
-  const color = METRIC_COLORS[type];
+  const color = useChartAccent();
   const fmt = (v: number) => formatMetricValue(type, v);
   return (
     <div>
@@ -135,34 +134,43 @@ export function MetricExplorer({
   const type = current.metricType;
   return (
     <section aria-label="Major metrics" className={cn('panel overflow-hidden', highlight && 'ring-2 ring-emerald-400/70')}>
-      <div role="tablist" aria-label="Pick a metric" className="flex gap-px overflow-x-auto border-b border-border bg-border">
-        {rows.map(({ metric }) => {
+      {/* The figure switcher: picking one re-sorts the deck chart below and swaps the detail. */}
+      <div role="tablist" aria-label="Pick a metric" className="flex gap-2 overflow-x-auto border-b border-border bg-surface-2/40 p-2">
+        {rows.map(({ metric, ranking }) => {
           const on = metric.metricType === type;
+          const ranked = ranking.rank != null && ranking.of > 1;
           return (
             <button key={metric.metricType} type="button" role="tab" aria-selected={on}
               onClick={() => onSelect(metric.metricType)}
-              className={cn('min-w-[132px] flex-1 bg-surface px-4 py-3 text-left transition-colors', on ? 'bg-surface' : 'bg-surface-2/50 hover:bg-surface')}
-              style={on ? { boxShadow: `inset 0 -2px 0 ${METRIC_COLORS[metric.metricType]}` } : undefined}>
-              <span className="block text-[10.5px] font-semibold uppercase tracking-wider text-faint">{metricLabel(metric)}</span>
+              className={cn(
+                'relative min-w-[128px] flex-1 rounded-lg border px-3.5 py-2.5 text-left transition-[background-color,border-color,box-shadow] duration-200 motion-reduce:transition-none',
+                on ? 'border-primary/50 bg-surface shadow-card' : 'border-transparent hover:border-border hover:bg-surface',
+              )}>
+              <span className={cn('block text-[10.5px] font-semibold uppercase tracking-wider', on ? 'text-primary-ink' : 'text-faint')}>{metricLabel(metric)}</span>
               <span className={cn('mt-0.5 block whitespace-nowrap font-display text-lg font-semibold tabular-nums', on ? 'text-content' : 'text-muted')}>
                 {figureDisplay(metric)}
                 {metric.confidence === 'estimated' && <>{' '}<abbr title="Estimated" className="text-[10px] font-normal text-faint no-underline">est.</abbr></>}
               </span>
+              <span className="mt-0.5 block text-[11px] tabular-nums text-faint">{ranked ? `#${ranking.rank} of ${ranking.of} in deck` : ' '}</span>
             </button>
           );
         })}
-        {missing.map((metric) => (
-          <button key={metric.metricType} type="button" role="tab" aria-selected={metric.metricType === type}
-            onClick={() => onSelect(metric.metricType)}
-            className="min-w-[110px] flex-none border-l border-dashed border-border bg-surface-2/30 px-4 py-3 text-left text-muted hover:bg-surface">
-            <span className="block text-[10.5px] font-semibold uppercase tracking-wider text-faint">{metricLabel(metric)}</span>
-            <span className="mt-0.5 block text-[13px]">Not found yet</span>
-          </button>
-        ))}
+        {missing.map((metric) => {
+          const on = metric.metricType === type;
+          return (
+            <button key={metric.metricType} type="button" role="tab" aria-selected={on}
+              onClick={() => onSelect(metric.metricType)}
+              className={cn('min-w-[104px] flex-none rounded-lg border border-dashed px-3 py-2.5 text-left transition-colors',
+                on ? 'border-primary/50 bg-surface text-content' : 'border-border/80 text-muted hover:bg-surface')}>
+              <span className="block text-[10.5px] font-semibold uppercase tracking-wider text-faint">{metricLabel(metric)}</span>
+              <span className="mt-0.5 block text-[12.5px]">Not found yet</span>
+            </button>
+          );
+        })}
       </div>
 
-      {/* The one detail panel: the figure, its sources and the deck ranking live in the caller's children. */}
-      <div key={type} role="tabpanel" aria-label={`${metricLabel(current)} detail`} className="p-5">
+      {/* The one detail panel. Not keyed by figure: the deck chart inside stays mounted, so switching figures animates it. */}
+      <div role="tabpanel" aria-label={`${metricLabel(current)} detail`} className="p-5 sm:p-6">
         {children}
       </div>
     </section>
