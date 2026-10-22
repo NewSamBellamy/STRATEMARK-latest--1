@@ -133,7 +133,7 @@ import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnersh
 import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
 import type { CallMetricsAggregate, LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
 import { applyMilestone, usageSince, type DeckRun, type DeckRunMilestone } from './deck-run';
-import type { ResearchNoteEntry, ReportedMetricSupport } from '@mi/contracts';
+import type { ResearchNoteEntry, ReportedMetricSupport, ResearchDocumentInput, ResearchDocumentResult } from '@mi/contracts';
 import { recordResearchEvidence, searchResearchEvidence, searchOriginalSourceEvidence, type ResearchEvidence } from './research-evidence';
 import { searchEvidenceCorpus } from './retrieval';
 import { HUNT_STALE_FIGURES, companyDomainOf, figurePublisher } from './metric-assessment';
@@ -250,6 +250,7 @@ import { acceptedMetricPassage, currencyConversionNote, normalizeMetricToUsd } f
 import { overviewFigures, renderCompanyOverview, renderSourceReportedOverview, savedOverviewNarrative, type OverviewNarrative } from './company-overview';
 import { answerSize, buildChatPrompt, formatCompanyBlock, formatDeckRankings, isGreeting } from './chat-context';
 import { chatTier, dropQuestionOnlyFigures, routeChat } from './chat-route';
+import { MAX_DOCUMENT_CHARS, MIN_DOCUMENT_CHARS, chunkDocument, cleanDocumentText, digestNoteText, documentDigestPrompt, documentDigestSchema, gateDigest, type DocumentDigest } from './research-document';
 import { answerFromMemory, answerGreeting, compareArchive, gatherChatMemory, keepFreshEvidence } from './chat-memory';
 import { savedCompanySummary } from './saved-profile';
 import { buildCompanyTopicReport } from './company-report';
@@ -2861,6 +2862,47 @@ export class GeminiRepository implements MarketIntelRepository {
     await this.persist();
     return { id, companyId: input.companyId, companyName: input.companyName,
       topic: 'user_note', capturedAt: nowIso, text, citations };
+  }
+
+  async addResearchDocument(input: ResearchDocumentInput): Promise<ResearchDocumentResult> {
+    const title = input.title.trim().slice(0, 160) || 'Untitled document';
+    const cleaned = cleanDocumentText(input.text);
+    if (cleaned.length < MIN_DOCUMENT_CHARS) throw new Error('That document has too little text to read. Paste more, or try another file.');
+    const truncated = cleaned.length > MAX_DOCUMENT_CHARS;
+    const text = truncated ? cleaned.slice(0, MAX_DOCUMENT_CHARS) : cleaned;
+    let citations: Citation[] = [];
+    if (input.sourceUrl?.trim()) {
+      try {
+        const parsed = new URL(input.sourceUrl.trim());
+        if (/^https?:$/.test(parsed.protocol)) citations = [{ title: parsed.hostname.replace(/^www\./, ''), url: parsed.toString() }];
+      } catch { /* a source that is not an address is simply not linked */ }
+    }
+    const nowIso = new Date().toISOString();
+    const stamp = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+    const pieces = chunkDocument(text);
+    const stored: ResearchEvidence[] = pieces.map((piece, index) => ({
+      id: `ev_doc_${stamp}_${index}`, companyId: input.companyId, companyName: input.companyName,
+      topic: 'user_note', capturedAt: nowIso, citations, queries: [],
+      text: `[Provided by you: ${title}${pieces.length > 1 ? `, part ${index + 1} of ${pieces.length}` : ''}]\n\n${piece}`,
+    }));
+    this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), ...stored];
+    await this.persist();
+
+    let digest: DocumentDigest = { summary: '', findings: [], figures: [] };
+    let digestFailed = false;
+    try {
+      const raw = await this.client.structure(documentDigestPrompt({ companyName: input.companyName, title, text }), documentDigestSchema,
+        { label: 'document:digest', priority: 'urgent' });
+      digest = gateDigest(raw, text);
+    } catch { digestFailed = true; }
+    if (digest.summary || digest.findings.length || digest.figures.length) {
+      this.snap.researchEvidence = [...(this.snap.researchEvidence ?? []), {
+        id: `ev_doc_${stamp}_digest`, companyId: input.companyId, companyName: input.companyName,
+        topic: 'user_note', capturedAt: new Date().toISOString(), citations, queries: [], text: digestNoteText(title, digest),
+      }];
+      await this.persist();
+    }
+    return { evidenceId: stored[0]!.id, title, summary: digest.summary, findings: digest.findings, figures: digest.figures, truncated, digestFailed };
   }
 
   getCompany(companyId: string): Promise<Company | null> {

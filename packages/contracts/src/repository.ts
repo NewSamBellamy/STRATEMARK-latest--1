@@ -760,6 +760,34 @@ export interface SavedCard {
   savedAt: string;
 }
 
+/** Research the user dropped in about one company (a file, pasted text, or a page they supplied). */
+export interface ResearchDocumentInput {
+  companyId: string;
+  companyName: string;
+  /** What to call it: the file name, the page title, or the user's own label. */
+  title: string;
+  /** The document as plain text. The caller extracts it (PDF to text, page to text). */
+  text: string;
+  /** Where it came from, when it has an address. */
+  sourceUrl?: string;
+  kind: 'file' | 'text' | 'url';
+}
+
+/** The result of reading a dropped-in document. Every finding and figure carries a quote taken word for word from it. */
+export interface ResearchDocumentResult {
+  /** The first stored piece of the document. */
+  evidenceId: string;
+  title: string;
+  summary: string;
+  findings: Array<{ claim: string; quote: string }>;
+  /** Proposals only. Nothing becomes a figure until a person applies it (which makes it user-verified). */
+  figures: Array<{ metricType: MetricType; value: number; label: string; quote: string }>;
+  /** The document was longer than the limit and was cut. */
+  truncated: boolean;
+  /** The document is kept and searchable, but the model read of it failed. */
+  digestFailed: boolean;
+}
+
 /** A user-authored entry in the deck's research knowledge base. Structural
  * subset of the research package's evidence record (contracts cannot import
  * the research package). */
@@ -967,6 +995,13 @@ export interface MarketIntelRepository {
    * evidence only — confidence is re-earned by the gates. Optional capability.
    */
   reuseCompanyEvidence?(companyId: string): Promise<number>;
+
+  /**
+   * Keep research the user dropped in (a file, pasted text, a page) and read it back: a summary, findings and
+   * figure proposals, each backed by a word-for-word quote or dropped. The document stays searchable by chat and the
+   * Research & Sources tab. It is the user's own material, never counted as independently verified. OPTIONAL.
+   */
+  addResearchDocument?(input: ResearchDocumentInput): Promise<ResearchDocumentResult>;
 
   /**
    * Add a user-authored note to the deck's research knowledge base. The note

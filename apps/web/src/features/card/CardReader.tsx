@@ -15,6 +15,7 @@ import { useCompanyReportRun } from '@/features/reports/useCompanyReportRun';
 import { FollowTodayButton } from '@/features/today/FollowTodayButton';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { CardStage } from './CardStage';
+import { DropInResearch } from './DropInResearch';
 import { SaveCardButton } from './GameCard';
 import { SignalFinding } from './SignalFinding';
 import { SignalBriefBody, sourcedPoints, useSignalBrief } from './SignalBriefView';
@@ -162,6 +163,8 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
               No source receipt is attached to this summary.
             </span>}
           </section>}
+
+          {company && !view.signal && !readOnly && <DropInResearch companyId={company.id} companyName={company.name} />}
 
           {/* Route departure unmounts the reader. Closing it separately also
               navigates the deck query and competes with this destination. */}
