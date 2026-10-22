@@ -99,6 +99,28 @@
   border-radius: 16px;
   box-shadow: inset 0 0 0 1px #243b3020;
 }
+/* Brand frame: the logo's own colours as a two-tone frame, with a thin inner
+   stripe (the logo's third colour, else a cream line) between frame and paper. */
+.collectible--brand {
+  border-color: color-mix(in srgb, var(--card-c1) 60%, #0b1512);
+  background:
+    linear-gradient(180deg, #ffffff40 0%, transparent 34%, transparent 70%, #0000001c 100%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--card-c1) 86%, #fff) 0%,
+      var(--card-c1) 38%,
+      var(--card-c2) 62%,
+      color-mix(in srgb, var(--card-c2) 84%, #0b1512) 100%
+    );
+}
+.collectible--brand::before {
+  inset: 3.5px;
+  border: 1.5px solid var(--card-c3, #fffdf5e0);
+  border-radius: 15.5px;
+  box-shadow:
+    0 0 0 0.5px #00000024,
+    inset 0 0 0 0.5px #00000024;
+}
 .card-sleeve__open:hover .collectible {
   box-shadow:
     0 3px 4px #102c2526,

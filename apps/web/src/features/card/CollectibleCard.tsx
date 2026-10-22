@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import { ownershipLabel, type CardWithCompany } from '@mi/contracts';
-import { deriveTriad } from '@/lib/brand';
+import { clampForChrome, deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
 import { Logo } from './Logo';
 
@@ -49,6 +49,14 @@ export function CollectibleCard({
     : hasBrandEvidence
       ? triad.accent
       : '#6a756f';
+  // The frame wears the logo's colours: two-tone when the logo has two or more, the brand colour and a
+  // deeper shade of it when it has one. A third colour becomes the thin inner stripe. No logo colours, no
+  // brand frame: the card keeps its standard border.
+  const frame = logoPalette.length > 0 ? {
+    '--card-c1': clampForChrome(logoPalette[0]!),
+    '--card-c2': logoPalette[1] ? clampForChrome(logoPalette[1]) : `color-mix(in srgb, ${clampForChrome(logoPalette[0]!)} 70%, #0b1512)`,
+    ...(logoPalette[2] ? { '--card-c3': clampForChrome(logoPalette[2]) } : {}),
+  } : null;
   const stage = view.position;
   const complete = view.faceMetrics.length > 0 &&
     view.faceMetrics.every((m) => (m.metric?.value != null || m.metric?.reportedBand != null) && (m.citations.length > 0 || m.metric?.confidence === 'user_verified'));
@@ -58,8 +66,9 @@ export function CollectibleCard({
 
   return (
     <div
-      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''}`}
-      style={{ '--card-accent': accent, '--card-highlight': highlight } as CSSProperties}
+      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''} ${frame ? 'collectible--brand' : ''}`}
+      style={{ '--card-accent': accent, '--card-highlight': frame ? frame['--card-c2'] : highlight, ...frame } as CSSProperties}
+      data-brand-colors={logoPalette.length > 0 ? logoPalette.join(' ') : undefined}
       data-testid="collectible-card-front"
     >
       <div className="collectible__paper">

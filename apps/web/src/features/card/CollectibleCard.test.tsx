@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { buildDataset } from '@mi/mocks';
 import { renderWithProviders } from '@/test/test-utils';
+import { clampForChrome } from '@/lib/brand';
 import { CollectibleCard } from './CollectibleCard';
 
 vi.mock('./Logo', () => ({
@@ -54,6 +55,30 @@ describe('CollectibleCard brand chrome', () => {
 
     // The shared brand engine keeps the hue but tempers it for readable card chrome.
     expect(screen.getByTestId('collectible-card-front')).toHaveStyle('--card-accent: #d6724e');
+  });
+
+  it('frames the card in the colours of its own logo: two-tone, with the third as the inner stripe', async () => {
+    const { user } = renderWithProviders(<CollectibleCard data={hydrated} />);
+    const front = screen.getByTestId('collectible-card-front');
+    expect(front).not.toHaveClass('collectible--brand');
+
+    await user.click(screen.getByText('resolve three logo colors'));
+
+    expect(front).toHaveClass('collectible--brand');
+    // Each colour is only tempered enough to read as chrome; the hues are the logo's.
+    expect(front.style.getPropertyValue('--card-c1')).toBe(clampForChrome('#0064a0'));
+    expect(front.style.getPropertyValue('--card-c2')).toBe(clampForChrome('#e31837'));
+    expect(front.style.getPropertyValue('--card-c3')).toBe(clampForChrome('#2a9d4b'));
+    expect(front).toHaveAttribute('data-brand-colors', '#0064a0 #e31837 #2a9d4b');
+  });
+
+  it('gives a one-colour logo a two-tone frame of that colour, and no stripe colour', async () => {
+    const { user } = renderWithProviders(<CollectibleCard data={hydrated} />);
+    await user.click(screen.getByText('resolve logo color'));
+    const front = screen.getByTestId('collectible-card-front');
+    expect(front).toHaveClass('collectible--brand');
+    expect(front.style.getPropertyValue('--card-c2')).toMatch(/color-mix/);
+    expect(front.style.getPropertyValue('--card-c3')).toBe('');
   });
 });
 
