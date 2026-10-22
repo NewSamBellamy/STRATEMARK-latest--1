@@ -5,6 +5,7 @@
  * derived from stored data in ./deck-library; nothing is estimated.
  */
 import { DeckCover } from './DeckCover';
+import { deckDisplayTitle, deckTitleSize } from './coverArt';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueries } from '@tanstack/react-query';
@@ -93,6 +94,8 @@ export function useDeckRows(markets: Market[]): DeckRow[] {
 function DeckStack({ row }: { row: DeckRow }) {
   const { market } = row;
   const count = row.size;
+  // The cover carries a short title; the full market name is in the text under the deck.
+  const title = deckDisplayTitle(market.name);
   const edge =
     'absolute inset-0 rounded-2xl border border-black/25 bg-[#1b2a25] shadow-sm transition-transform duration-300 ease-out motion-reduce:transition-none';
   return (
@@ -108,8 +111,9 @@ function DeckStack({ row }: { row: DeckRow }) {
       <span className="absolute inset-0 overflow-hidden rounded-2xl shadow-card transition-all duration-300 ease-out group-hover:-translate-y-1.5 group-hover:shadow-card-hover motion-reduce:transition-none motion-reduce:group-hover:translate-y-0">
         <DeckCover name={market.name} seed={market.id} className="absolute inset-0 h-full w-full" />
         <span className="absolute inset-x-0 bottom-0 px-5 pb-8 pt-4 text-center">
-          <span className="line-clamp-3 block font-display text-[15px] font-semibold leading-tight text-[#f1ead2] [text-wrap:balance]">
-            {market.name}
+          <span className="line-clamp-3 block break-words font-display font-semibold leading-tight text-[#f1ead2] [text-wrap:balance]"
+            style={{ fontSize: deckTitleSize(title) }}>
+            {title}
           </span>
           {count != null && (
             <span className="mt-1.5 block text-[10.5px] uppercase tracking-[0.18em] text-[#f1ead2]/70">

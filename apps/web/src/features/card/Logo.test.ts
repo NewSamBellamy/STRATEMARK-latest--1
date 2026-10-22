@@ -10,8 +10,9 @@ describe('hero logo quality floor', () => {
       expect(await pending).toBeNull();
     } finally { vi.useRealTimers(); }
   });
-  it('accepts a real 32px company mark instead of discarding it for initials', () => {
-    expect(isHeroLogoUsable({ width: 32, height: 32, vector: false })).toBe(true);
+  it('passes a mark sharp enough for the art window, and sends a 32px icon to the monogram instead of blurring it', () => {
+    expect(isHeroLogoUsable({ width: 180, height: 180, vector: false })).toBe(true);
+    expect(isHeroLogoUsable({ width: 32, height: 32, vector: false })).toBe(false);
   });
 
   it('rejects tiny tab icons but always accepts vector marks', () => {

@@ -138,6 +138,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           </div>
           <h2 className="mt-3 font-display text-2xl font-semibold leading-tight text-content">{view.title}</h2>
           {company?.hqLocation && <p className="mt-1 text-[11px] text-muted">{company.hqLocation}</p>}
+          <p className="mt-1 text-[11px] text-muted" data-testid="card-reader-provenance">
+            {view.position} · {view.sourceCount > 0 ? `${view.sourceCount} ${view.sourceCount === 1 ? 'source' : 'sources'} tracked` : 'Research needed'}
+          </p>
 
           {view.signal ? <>{briefShown ? <SignalBriefBody controls={briefControls} /> : <><SignalFinding data={data} citations={view.citations} /><SignalBriefBody controls={briefControls} /></>}</> : <section className="card-inspector__summary" aria-label="Company summary">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Summary</p>

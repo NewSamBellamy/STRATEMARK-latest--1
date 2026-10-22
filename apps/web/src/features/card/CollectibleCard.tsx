@@ -1,7 +1,8 @@
 import { useState, type CSSProperties } from 'react';
 import { ownershipLabel, type CardWithCompany } from '@mi/contracts';
-import { deriveTriad } from '@/lib/brand';
+import { clampForChrome, deriveTriad } from '@/lib/brand';
 import { buildCardView, type CardView } from './card-view';
+import { faceFooter } from './faceFooter';
 import { Logo } from './Logo';
 
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
@@ -30,8 +31,10 @@ export function CollectibleCard({
 }) {
   const artwork = DEFAULT_CARD_ART[data.card.cardType];
   const companyKey = data.company?.id ?? view.title;
-  const [extractedBrand, setExtractedBrand] = useState<{ key: string; color: string } | null>(null);
-  const logoColor = extractedBrand?.key === companyKey ? extractedBrand.color : null;
+  const [extractedBrand, setExtractedBrand] = useState<{ key: string; colors: string[] } | null>(null);
+  // The brand's own colours, read from its logo (one to three, most present first).
+  const logoPalette = !artwork && !view.signal && extractedBrand?.key === companyKey ? extractedBrand.colors : [];
+  const logoColor = logoPalette[0] ?? null;
   const brand = ['scraped', 'manual'].includes(data.company?.brandTheme?.source ?? '')
     ? data.company?.brandTheme
     : null;
@@ -47,17 +50,23 @@ export function CollectibleCard({
     : hasBrandEvidence
       ? triad.accent
       : '#6a756f';
-  const stage = view.position;
+  // The frame wears the logo's colours: two-tone when the logo has two or more, the brand colour and a
+  // deeper shade of it when it has one. A third colour becomes the thin inner stripe. No logo colours, no
+  // brand frame: the card keeps its standard border.
+  const frame = logoPalette.length > 0 ? {
+    '--card-c1': clampForChrome(logoPalette[0]!),
+    '--card-c2': logoPalette[1] ? clampForChrome(logoPalette[1]) : `color-mix(in srgb, ${clampForChrome(logoPalette[0]!)} 70%, #0b1512)`,
+    ...(logoPalette[2] ? { '--card-c3': clampForChrome(logoPalette[2]) } : {}),
+  } : null;
+  const footer = faceFooter(data);
   const complete = view.faceMetrics.length > 0 &&
     view.faceMetrics.every((m) => (m.metric?.value != null || m.metric?.reportedBand != null) && (m.citations.length > 0 || m.metric?.confidence === 'user_verified'));
-  const provenance = view.sourceCount > 0
-    ? `${view.sourceCount} ${view.sourceCount === 1 ? 'source' : 'sources'} tracked`
-      : 'Research needed';
 
   return (
     <div
-      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''}`}
-      style={{ '--card-accent': accent, '--card-highlight': highlight } as CSSProperties}
+      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''} ${frame ? 'collectible--brand' : ''}`}
+      style={{ '--card-accent': accent, '--card-highlight': frame ? frame['--card-c2'] : highlight, ...frame } as CSSProperties}
+      data-brand-colors={logoPalette.length > 0 ? logoPalette.join(' ') : undefined}
       data-testid="collectible-card-front"
     >
       <div className="collectible__paper">
@@ -77,7 +86,7 @@ export function CollectibleCard({
                 bare
                 logoUrl={logoUrlOverride ?? data.company?.logoUrl}
                 retryNonce={logoRetryNonce}
-                onColor={(color) => setExtractedBrand({ key: companyKey, color })}
+                onPalette={(colors) => setExtractedBrand({ key: companyKey, colors })}
                 onAvailabilityChange={onLogoAvailabilityChange}
                 className="h-full w-full"
               />
@@ -114,8 +123,8 @@ export function CollectibleCard({
           </div>
         ) : null}
         <div className="collectible__footer">
-          <span>{stage}</span>
-          <span>{provenance}</span>
+          <span>{footer.lead}</span>
+          <span>{footer.updated}</span>
         </div>
       </div>
       <div className="collectible__foil" aria-hidden="true" />

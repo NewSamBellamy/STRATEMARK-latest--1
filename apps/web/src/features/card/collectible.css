@@ -25,8 +25,10 @@
     transform 180ms ease,
     filter 180ms ease;
 }
+/* Under a mouse the card leans a few degrees toward the pointer (pointerSheen.ts
+   sets --tilt-x/y); without a pointer the vars are unset and it simply lifts. */
 .card-sleeve__open:hover {
-  transform: translateY(-5px);
+  transform: translateY(-5px) perspective(1100px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
   filter: saturate(1.03);
 }
 /* A status badge sits on the sleeve, not inside the card that lifts, so it rises by the same amount at the same pace. */
@@ -82,8 +84,12 @@
     #d8d1c0 52%,
     color-mix(in srgb, var(--card-highlight) 58%, #ddd5bf)
   );
+  /* Card stock: two thin offset layers read as the board's cut edge under the
+     face, then a contact shadow and a soft drop. */
   box-shadow:
-    0 2px 2px #102c2524,
+    0 1px 0 #efe9da,
+    0 2px 0 #b8af99,
+    0 3px 2px #102c2524,
     0 18px 30px -14px #102c2566,
     inset 0 1px 0 #ffffffb3,
     inset 0 0 0 1px #ffffff8f;
@@ -99,9 +105,33 @@
   border-radius: 16px;
   box-shadow: inset 0 0 0 1px #243b3020;
 }
+/* Brand frame: the logo's own colours as a two-tone frame, with a thin inner
+   stripe (the logo's third colour, else a cream line) between frame and paper. */
+.collectible--brand {
+  border-color: color-mix(in srgb, var(--card-c1) 60%, #0b1512);
+  background:
+    linear-gradient(180deg, #ffffff40 0%, transparent 34%, transparent 70%, #0000001c 100%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--card-c1) 86%, #fff) 0%,
+      var(--card-c1) 38%,
+      var(--card-c2) 62%,
+      color-mix(in srgb, var(--card-c2) 84%, #0b1512) 100%
+    );
+}
+.collectible--brand::before {
+  inset: 3.5px;
+  border: 1.5px solid var(--card-c3, #fffdf5e0);
+  border-radius: 15.5px;
+  box-shadow:
+    0 0 0 0.5px #00000024,
+    inset 0 0 0 0.5px #00000024;
+}
 .card-sleeve__open:hover .collectible {
   box-shadow:
-    0 3px 4px #102c2526,
+    0 1px 0 #efe9da,
+    0 2px 0 #b8af99,
+    0 4px 4px #102c2526,
     0 24px 38px -16px #102c2570,
     inset 0 1px 0 #ffffffc7,
     inset 0 0 0 1px #ffffff9c;
@@ -193,20 +223,36 @@
   width: 84px;
   aspect-ratio: 1;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--card-accent) 18%, #d5d0c4);
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--card-accent) 70%, #0b1512);
   border-radius: 22px;
-  color: var(--card-accent, #3f3f46);
+  color: #fffdf5;
   background:
-    radial-gradient(circle at 35% 25%, #ffffffd9, transparent 46%),
-    color-mix(in srgb, var(--card-accent) 7%, #f8f5ed);
+    radial-gradient(circle at 30% 18%, #ffffff4d, transparent 52%),
+    linear-gradient(140deg, var(--card-accent, #46524e) 0%, color-mix(in srgb, var(--card-highlight, #6a756f) 80%, #0b1512) 100%);
   box-shadow:
-    0 8px 18px -14px color-mix(in srgb, var(--card-accent) 55%, transparent),
-    inset 0 1px 0 #fff;
+    0 10px 20px -12px color-mix(in srgb, var(--card-accent) 70%, transparent),
+    inset 0 1px 0 #ffffff59,
+    inset 0 -2px 4px #00000024;
   font-family: 'Parkinsans', sans-serif;
   font-size: 34px;
   font-weight: 700;
-  letter-spacing: -0.08em;
+  letter-spacing: -0.06em;
   line-height: 1;
+  text-shadow: 0 1px 1px #0000003d;
+  mix-blend-mode: normal;
+}
+/* A cream keyline inside the tile, like an embossed seal. */
+.collectible__monogram::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 1px solid #fffdf54d;
+  border-radius: 17px;
+  pointer-events: none;
+}
+.collectible__brand:has(.collectible__monogram) {
+  mix-blend-mode: normal;
 }
 .collectible__art-label {
   position: absolute;
@@ -438,6 +484,72 @@
   transform-style: preserve-3d;
   transform: rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
   transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* Turning the card over: drag sideways to spin it (CardStage sets --spin while
+   held), or use the Flip button; it rests on --turn, a multiple of 180deg. */
+.card-stage__perspective {
+  cursor: grab;
+  touch-action: pan-y;
+}
+.card-stage__perspective--dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.card-stage__spin {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: rotateY(var(--spin, var(--turn, 0deg)));
+  transition: transform 560ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.card-stage__perspective--dragging .card-stage__spin {
+  transition: none;
+}
+.card-stage__face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.card-stage__face--back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+}
+.card-stage__flip {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid #f0e1b647;
+  border-radius: 999px;
+  color: #f0e1b6;
+  background: #0b1d19cc;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.card-stage__flip:hover {
+  border-color: #f0e1b699;
+  background: #17392fe6;
+}
+.card-stage__flip:focus-visible {
+  outline: 2px solid #f0e1b6;
+  outline-offset: 2px;
+}
+.collectible--back {
+  padding: 0;
+  border-color: #787d58;
+  background: #0b1d19;
+}
+.collectible--back::before {
+  border-color: #f0e1b62e;
+}
+.collectible__back-art {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 .card-stage .collectible {
   box-shadow:
@@ -775,8 +887,12 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .card-sleeve__open,
-  .card-stage__tilt {
+  .card-stage__tilt,
+  .card-stage__spin {
     transition: none;
+  }
+  .card-stage__perspective {
+    cursor: auto;
   }
   .card-sleeve__open:hover {
     transform: none;

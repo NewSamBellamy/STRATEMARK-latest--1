@@ -52,6 +52,11 @@ describe('CardReader', () => {
     expect(screen.queryByRole('button', { name: 'Next lane' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Next card' })).toBeEnabled();
   });
+  it('keeps the figure coverage and source count in the reader, now that the face shows the update date', () => {
+    const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
+    renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
+    expect(screen.getByTestId('card-reader-provenance')).toHaveTextContent(/\d\/4 figures sourced · (\d+ sources? tracked|Research needed)/);
+  });
   it('shows one concise overview, the four core figures, and a clear dashboard action', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
@@ -205,12 +210,14 @@ describe('CardReader', () => {
     expect(finding).toHaveTextContent('No clickable source has been saved for this finding yet.');
   });
 
-  it('keeps the card one-sided and preserves the selected card in its dashboard link', () => {
+  it('gives the card a plain Stratemark back, with no data on it, and preserves the selected card in its dashboard link', () => {
     const cwc = hydrate((c) => c.cardType === 'company' && c.companyId === 'cmp_holy-hype');
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} marketId="market-test" />);
     expect(screen.getByTestId('collectible-card-front')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /flip card/i })).not.toBeInTheDocument();
-    expect(screen.queryByTestId('collectible-card-back')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Flip card' })).toBeInTheDocument();
+    // The back is the shared brand back: no figures or names to keep in step with the face.
+    const back = screen.getByTestId('collectible-card-back');
+    expect(back).toHaveTextContent(/^STRATEMARK$/);
     expect(screen.getByRole('link', { name: /open full company dashboard/i })).toHaveAttribute(
       'href', `/company/${cwc.company!.id}/dashboard/overview?deck=market-test&card=${cwc.card.id}`,
     );

@@ -9,6 +9,7 @@ import { useDashboardHydrating } from '@/lib/living/useDashboardWarm';
 import { cn } from '@/lib/cn';
 import { CollectibleCard } from './CollectibleCard';
 import { buildCardView } from './card-view';
+import { followPointer, settlePointer } from './pointerSheen';
 
 export interface GameCardProps {
   data: CardWithCompany;
@@ -72,6 +73,7 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
       </span>
     )}
     {onOpen ? <button type="button" className="card-sleeve__open" onClick={onOpen}
+      onPointerMove={followPointer} onPointerLeave={settlePointer}
       aria-label={`${view.title} — ${view.type} card`}>
       <CollectibleCard data={data} view={view} logoRetryNonce={logoRetryNonce}
         logoUrlOverride={logoUrlOverride} onLogoAvailabilityChange={onLogoAvailabilityChange} />

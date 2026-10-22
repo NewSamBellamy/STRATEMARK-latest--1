@@ -3,7 +3,8 @@
  * and swim round each other the way a pair of koi do (a spine that bends round the circle with a wave running from head to tail, a
  * forked fin that follows, an eye), then settle back into the logo exactly as it was. See `fishSwim.ts` for the motion.
  *
- * It moves only while a swim is playing: 4 to 6 seconds, then 28 to 52 seconds of rest. The shapes are redrawn each frame by setting
+ * It moves only while a swim is playing: 4 to 6 seconds, then 28 to 52 seconds of rest, or, given `cadence`, one swim starting every
+ * `cadence` milliseconds (the Ask orb swims every 30 seconds). The shapes are redrawn each frame by setting
  * path data directly (no React re-render per frame). It does nothing for anyone who has asked for less motion, in a hidden tab, or
  * when asked to keep still.
  */
@@ -18,6 +19,8 @@ const MOVES: readonly LivingMove[] = ['orbit', 'chase', 'drift'];
 /** How long the mark waits before its first swim, and between swims (milliseconds, a random time in the range). */
 export const FIRST_WAIT: readonly [number, number] = [6_000, 11_000];
 export const REST_WAIT: readonly [number, number] = [28_000, 52_000];
+/** The Ask orb's rhythm: one swim starts every 30 seconds. */
+export const ORB_CADENCE = 30_000;
 
 const between = ([low, high]: readonly [number, number]) => low + Math.random() * (high - low);
 
@@ -31,7 +34,11 @@ function prefersLessMotion(): boolean {
 
 const CENTRE = '37.3 43.5';
 
-export function LivingMark({ className, label, still = false }: { className?: string; label?: string; still?: boolean }) {
+export function LivingMark({ className, label, still = false, cadence }: {
+  className?: string; label?: string; still?: boolean;
+  /** Milliseconds from the start of one swim to the start of the next. Omit for the long random rest. */
+  cadence?: number;
+}) {
   const id = useId().replace(/:/g, '');
   const svg = useRef<SVGSVGElement>(null);
   const pathA = useRef<SVGPathElement>(null);
@@ -47,12 +54,29 @@ export function LivingMark({ className, label, still = false }: { className?: st
     let timer: ReturnType<typeof setTimeout> | undefined;
     let raf = 0;
     let stopped = false;
+    // Someone who turns on reduced motion while the page is open gets a still mark from then on.
+    let motionQuery: MediaQueryList | null = null;
+    const onMotionChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) return;
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      if (raf) cancelAnimationFrame(raf);
+      settle();
+    };
+    try { motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)'); } catch { motionQuery = null; }
+    motionQuery?.addEventListener?.('change', onMotionChange);
+    /** The rest after a swim of this many seconds: the long random one, or what is left of the cadence. */
+    const after = (seconds: number): readonly [number, number] => {
+      if (!cadence) return REST_WAIT;
+      const left = Math.max(1_000, cadence - seconds * 1000);
+      return [left, left];
+    };
 
     const rest = (wait: readonly [number, number]) => {
       timer = setTimeout(() => {
         if (stopped) return;
         // A hidden tab does not need to swim; ask again later.
-        if (document.visibilityState !== 'visible') { rest(REST_WAIT); return; }
+        if (document.visibilityState !== 'visible') { rest(cadence ? [cadence, cadence] : REST_WAIT); return; }
         const name = MOVES[next.current % MOVES.length]!;
         next.current += 1;
         swim(name, SWIMS[name]);
@@ -77,7 +101,7 @@ export function LivingMark({ className, label, still = false }: { className?: st
         const t = (performance.now() - started) / 1000;
         if (t >= variant.seconds) {
           settle();
-          rest(REST_WAIT);
+          rest(after(variant.seconds));
           return;
         }
         const frame = swimFrame(variant, t);
@@ -100,11 +124,12 @@ export function LivingMark({ className, label, still = false }: { className?: st
     rest(FIRST_WAIT);
     return () => {
       stopped = true;
+      motionQuery?.removeEventListener?.('change', onMotionChange);
       if (timer) clearTimeout(timer);
       if (raf) cancelAnimationFrame(raf);
       settle();
     };
-  }, [still]);
+  }, [still, cadence]);
 
   const gradientA = `lm-a-${id}`;
   const gradientB = `lm-b-${id}`;

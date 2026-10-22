@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render } from '@testing-library/react';
-import { FIRST_WAIT, LivingMark, REST_WAIT } from './LivingMark';
+import { FIRST_WAIT, LivingMark, ORB_CADENCE, REST_WAIT } from './LivingMark';
 import { SWIMS } from './fishSwim';
 import { MARK_PATH_A, MARK_PATH_B } from './markPaths';
 
@@ -97,6 +97,20 @@ describe('the living mark', () => {
       act(() => { vi.advanceTimersByTime(1); });
     }
     expect(seen).toEqual(['orbit', 'chase', 'drift']);
+  });
+
+  it('with a cadence, starts a swim every 30 seconds, start to start', () => {
+    expect(ORB_CADENCE).toBe(30_000);
+    const { container } = render(<LivingMark cadence={ORB_CADENCE} />);
+    act(() => { vi.advanceTimersByTime(FIRST_WAIT[0]); });
+    expect(move(container)).toBe('orbit');
+    frame(SWIMS.orbit.seconds * 1000 + 1);
+    expect(move(container)).toBe('none');
+    const restMs = ORB_CADENCE - SWIMS.orbit.seconds * 1000;
+    act(() => { vi.advanceTimersByTime(restMs - 2); });
+    expect(move(container)).toBe('none');
+    act(() => { vi.advanceTimersByTime(2); });
+    expect(move(container)).toBe('chase');
   });
 
   it('does nothing in a hidden tab, when asked to keep still, or for someone who wants less motion', () => {

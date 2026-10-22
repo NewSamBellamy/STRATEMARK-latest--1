@@ -23,11 +23,13 @@ describe('card face without scoring', () => {
     renderWithProviders(<GameCard data={rated} />);
     expect(screen.queryByTestId('card-ovr')).not.toBeInTheDocument();
     expect(screen.queryByText(/\bOVR\b|Maturity · T|Indicative · T/)).not.toBeInTheDocument();
-    expect(screen.getByText('1/4 figures sourced')).toBeInTheDocument();
+    // The face says when the card last changed; figure coverage lives in the card reader.
+    expect(screen.getByText(/^Updated \d{1,2} [A-Z][a-z]{2}/)).toBeInTheDocument();
+    expect(screen.queryByText(/figures sourced/)).not.toBeInTheDocument();
   });
-  it('reports zero coverage when no figure is sourced', () => {
+  it('keeps the coverage count off the face when no figure is sourced', () => {
     renderWithProviders(<GameCard data={unsourced} />);
-    expect(screen.getByText('0/4 figures sourced')).toBeInTheDocument();
+    expect(screen.queryByText(/figures sourced/)).not.toBeInTheDocument();
   });
 });
 

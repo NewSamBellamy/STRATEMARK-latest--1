@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import { COVER_PALETTES, coverSpec, hashSeed, monogram, roseSet } from './coverArt';
+import { COVER_PALETTES, coverSpec, deckDisplayTitle, deckTitleSize, hashSeed, monogram, roseSet } from './coverArt';
 import { DeckCover } from './DeckCover';
 
 const NAMES = [
@@ -68,5 +68,26 @@ describe('deck cover art', () => {
     const { container } = render(<><DeckCover name="A" seed="1" /><DeckCover name="B" seed="2" /></>);
     const ids = [...container.querySelectorAll('[id]')].map((n) => n.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('the title on a deck cover', () => {
+  it('drops bracketed abbreviations, alternative names and a trailing "Market"', () => {
+    expect(deckDisplayTitle('Trading Card Games (TCG) / Collectible Card Games (CCG) Market')).toBe('Trading Card Games');
+    expect(deckDisplayTitle('United States Quick Service Restaurant (QSR) and Fast Food Market'))
+      .toBe('US Quick Service Restaurant and Fast Food');
+    expect(deckDisplayTitle('AI-Powered Design Tools Market')).toBe('AI-Powered Design Tools');
+    expect(deckDisplayTitle('Frontier AI Labs Market')).toBe('Frontier AI Labs');
+  });
+
+  it('leaves a short name alone and never returns nothing', () => {
+    expect(deckDisplayTitle('Frontier AI Ecosystem')).toBe('Frontier AI Ecosystem');
+    expect(deckDisplayTitle('Christian Apparel Companies — California')).toBe('Christian Apparel Companies — California');
+    expect(deckDisplayTitle('Market')).toBe('Market');
+    expect(deckDisplayTitle('(TCG)')).toBe('(TCG)');
+  });
+
+  it('sets longer titles smaller', () => {
+    expect(deckTitleSize('Trading Card Games')).toBeGreaterThan(deckTitleSize('US Quick Service Restaurant and Fast Food'));
   });
 });
