@@ -24,6 +24,15 @@ export class DamagedResearchError extends Error {
   }
 }
 
+/** A save was refused because the in-memory snapshot is invalid. The saved workspace was read fine, so this must never
+ * open the damaged-workspace panel (which offers to replace it). Same message as before. */
+export class RefusedWriteError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super(DAMAGED_MESSAGE, options);
+    this.name = 'RefusedWriteError';
+  }
+}
+
 const compressed = () => typeof CompressionStream === 'function' && typeof DecompressionStream === 'function';
 
 async function drain(stream: ReadableStream<Uint8Array>, chunk: (bytes: Uint8Array) => void): Promise<void> {
@@ -201,7 +210,7 @@ export async function openBrowserResearchStore(): Promise<ResearchStore> {
       const refusal = future || version > REPO_SCHEMA_VERSION
         ? new Error('This research uses a newer version of Stratemark. Update before saving.')
         : invalid !== undefined
-          ? new DamagedResearchError({ cause: invalid })
+          ? new RefusedWriteError({ cause: invalid })
           : null;
       if (refusal) {
         // A refused write keeps its own place in the queue and never merges with a valid one.
@@ -267,15 +276,24 @@ export const DAMAGED_BACKUP_PREFIX = `${LEGACY}.damaged-backup`;
 export async function setDamagedResearchAside(now: number = Date.now()): Promise<string> {
   const stamp = `${DAMAGED_BACKUP_PREFIX}.${new Date(now).toISOString().replace(/[:.]/g, '-')}`;
   const legacy = localStorage.getItem(LEGACY);
+  // A big legacy value can be over the localStorage quota for a second copy: then the copy goes to IndexedDB instead,
+  // in the same transaction as the other records. The original is removed only after one verified copy exists.
+  let legacyInIndexedDb = false;
   if (legacy !== null) {
-    localStorage.setItem(`${stamp}.localStorage`, legacy);
-    if (localStorage.getItem(`${stamp}.localStorage`) !== legacy) throw new Error('The copy could not be saved, so nothing was changed.');
+    try {
+      localStorage.setItem(`${stamp}.localStorage`, legacy);
+      if (localStorage.getItem(`${stamp}.localStorage`) !== legacy) throw new Error('The copy could not be verified.');
+    } catch {
+      try { localStorage.removeItem(`${stamp}.localStorage`); } catch { /* nothing to clean */ }
+      legacyInIndexedDb = true;
+    }
   }
   const db = await openDatabase();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction('snapshots', 'readwrite');
       const store = tx.objectStore('snapshots');
+      if (legacyInIndexedDb && legacy !== null) store.put({ json: legacy, at: now }, `${stamp}.localStorage`);
       for (const key of [CURRENT, BACKUP, LEGACY]) {
         const request = store.get(key);
         request.onsuccess = () => {

@@ -284,6 +284,15 @@ describe('acknowledged browser research storage', () => {
     expect((await openBrowserResearchStore()).read()).toEqual(kept);
   });
 
+  it('a refused write of an invalid in-memory snapshot is not a damaged workspace', async () => {
+    const store = await openBrowserResearchStore();
+    const failure = await Promise.resolve(store.write({ ...data(), reports: [7] } as unknown as ReturnType<typeof data>)).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(DamagedResearchError);
+    expect((failure as Error).message).toBe(DAMAGED_MESSAGE);
+    expect((failure as Error).name).toBe('RefusedWriteError');
+  });
+
   it('never folds a valid write into a refused one', async () => {
     const store = await openBrowserResearchStore();
     const valid = { ...data(), reports: [{ id: 'valid' }] } as ReturnType<typeof data>;
@@ -384,6 +393,34 @@ describe('acknowledged browser research storage', () => {
       await store.write(data());
       expect((await openBrowserResearchStore()).read()).toEqual(data());
       expect(localStorage.getItem(`${stamp}.localStorage`)).toBe(DAMAGED);
+    });
+
+    it('when the localStorage backup is over quota, keeps the verified copy in IndexedDB and then moves the original', async () => {
+      localStorage.setItem(KEY, DAMAGED);
+      const real = Storage.prototype.setItem;
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+        if (key.startsWith(DAMAGED_BACKUP_PREFIX)) throw new DOMException('quota', 'QuotaExceededError');
+        return real.call(this, key, value);
+      });
+      const stamp = await setDamagedResearchAside();
+      spy.mockRestore();
+      expect(localStorage.getItem(`${stamp}.localStorage`)).toBeNull();
+      expect(await rawRecord(`${stamp}.localStorage`)).toMatchObject({ json: DAMAGED });
+      expect(localStorage.getItem(KEY)).toBeNull();
+      expect((await openBrowserResearchStore()).read()).toBeNull();
+    });
+
+    it('never removes the original when neither backup could be written', async () => {
+      localStorage.setItem(KEY, DAMAGED);
+      const real = Storage.prototype.setItem;
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+        if (key.startsWith(DAMAGED_BACKUP_PREFIX)) throw new DOMException('quota', 'QuotaExceededError');
+        return real.call(this, key, value);
+      });
+      const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => { throw new DOMException('quota', 'QuotaExceededError'); });
+      await expect(setDamagedResearchAside()).rejects.toThrow();
+      spy.mockRestore(); put.mockRestore();
+      expect(localStorage.getItem(KEY)).toBe(DAMAGED);
     });
 
     it('sets a damaged browser-store record aside byte for byte, keeping an older backup too', async () => {
