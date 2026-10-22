@@ -79,6 +79,8 @@ const LED_BY = /\b(?:co-?led|led)\s+by\s+((?:[^.;()]|(?<=\b[A-Z])\.)+)/i;
 const LEAD_END = /\s(?:at|as|with|to|for|in|from|on|which|after|valuing|bringing|while|following|alongside|plus)\s/i;
 const NAME_TOKEN = /^[A-Z0-9][\p{L}\p{N}&.'’-]*$/u;
 
+const ROLE_WORD = /^(?:CEO|CTO|CFO|COO|CIO|Founder|Co-?founder|Chairman|Chairwoman|Chair|President|Chancellor|Director|Partner|Investor|Billionaire|Executive)$/;
+
 /** The organisations named after "led by" / "co-led by" in the text; names that are not plain proper names are dropped. */
 export function statedLeadInvestors(text: string): string[] {
   const tail = LED_BY.exec(text)?.[1];
@@ -89,9 +91,15 @@ export function statedLeadInvestors(text: string): string[] {
     .map((part) => part.trim())
     .filter((part) => part.length > 1);
   const out: string[] = [];
-  for (const name of names) {
-    const tokens = name.split(/\s+/);
-    if (tokens.length > 5 || !tokens.every((token) => NAME_TOKEN.test(token))) continue;
+  for (const full of names) {
+    let tokens = full.split(/\s+/);
+    // "Chamath Palihapitiya’s Social Capital": the organisation is what follows the possessive.
+    const possessive = tokens.findIndex((token) => /['’]s$/.test(token));
+    if (possessive >= 0) tokens = tokens.slice(possessive + 1);
+    // "FTX CEO Sam Bankman-Fried": a job title before a personal name is a person, not an investor.
+    if (tokens.some((token) => ROLE_WORD.test(token))) continue;
+    const name = tokens.join(' ');
+    if (tokens.length === 0 || tokens.length > 5 || !tokens.every((token) => NAME_TOKEN.test(token))) continue;
     if (!out.some((seen) => seen.toLowerCase() === name.toLowerCase())) out.push(name);
   }
   return out;

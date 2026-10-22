@@ -93,6 +93,22 @@ describe('statedLeadInvestors', () => {
   });
 });
 
+describe('statedLeadInvestors: a person is not an investor name (red-team minor)', () => {
+  it('drops an entry that is a job title before a personal name', () => {
+    expect(statedLeadInvestors('Round led by FTX CEO Sam Bankman-Fried and Orion Capital.')).toEqual(['Orion Capital']);
+    expect(statedLeadInvestors('Round led by Fakeco founder Jane Doe.')).toEqual([]);
+  });
+
+  it('keeps only the organisation of a possessive "Name’s Org"', () => {
+    expect(statedLeadInvestors('Round led by Chamath Palihapitiya’s Social Capital and Zeta Ventures.')).toEqual(['Social Capital', 'Zeta Ventures']);
+    expect(statedLeadInvestors("Round led by Jane Doe's Fakeco Partners.")).toEqual(['Fakeco Partners']);
+  });
+
+  it('does not touch real names that merely contain such letters', () => {
+    expect(statedLeadInvestors('Round led by Founders Fund and Lead Edge Capital.')).toEqual(['Founders Fund', 'Lead Edge Capital']);
+  });
+});
+
 describe('isFundingWording', () => {
   it('recognises a round title and nothing else', () => {
     expect(isFundingWording('Series C Financing')).toBe(true);
