@@ -39,6 +39,15 @@ export function useChartTheme(): ChartTheme {
   return chartTheme(useTheme((s) => s.resolved) === 'dark');
 }
 
+/**
+ * The one chart accent, as a hex Recharts can put in an SVG attribute (where
+ * `var(--c-primary)` does not resolve). Mirrors --c-primary in index.css.
+ * Every figure uses it: no per-figure rainbow.
+ */
+export function useChartAccent(): string {
+  return useTheme((s) => s.resolved) === 'dark' ? '#2DC8B6' : '#0F766E';
+}
+
 export function tooltipStyle(c: ChartTheme) {
   return {
     background: c.tooltipBg,

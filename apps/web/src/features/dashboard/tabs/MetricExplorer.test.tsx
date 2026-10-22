@@ -75,6 +75,17 @@ describe('the metric explorer', () => {
     await waitFor(() => expect(screen.getByTestId('detail')).toHaveTextContent('detail for employees'));
   });
 
+  it('says where the company ranks on each figure, and nothing for a figure with no peers', () => {
+    const rows = [
+      row(metric('valuation', 852e9), [{ id: 'cmp_a', name: 'Acme', value: 852e9 }, { id: 'cmp_b', name: 'Beta', value: 900e9 }].map((p, i) => ({ ...p, self: i === 0 }))),
+      row(metric('employees', 4500)),
+    ];
+    renderWithProviders(<Harness rows={rows} />);
+    const tabs = screen.getByRole('tablist', { name: 'Pick a metric' });
+    expect(within(tabs).getByRole('tab', { name: /Valuation/ })).toHaveTextContent('#2 of 2 in deck');
+    expect(within(tabs).getByRole('tab', { name: /Employees/ })).not.toHaveTextContent('in deck');
+  });
+
   it('draws no chart of its own: the deck ranking and history belong to the detail panel', () => {
     const rows = [row(metric('employees', 4500), [{ id: 'cmp_a', name: 'Acme', value: 4500, self: true }, { id: 'cmp_b', name: 'Beta', value: 900 }])];
     const { container } = renderWithProviders(<Harness rows={rows} />);
