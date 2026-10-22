@@ -29,6 +29,13 @@ const hydrated = {
   viceClaims: [],
 };
 
+/** A company with no researched brand theme: only its logo can colour the frame. */
+const unthemed = { ...hydrated, company: { ...hydrated.company, brandTheme: null } };
+const themed = (primary: string, secondary: string) => ({
+  ...hydrated,
+  company: { ...hydrated.company, brandTheme: { primary, secondary, accent: '#f59e0b', text: '#111111', background: '#ffffff', fontFamily: null, source: 'scraped' as const } },
+});
+
 describe('CollectibleCard brand chrome', () => {
   it('uses neutral chrome when no verified brand color is available', () => {
     renderWithProviders(
@@ -58,7 +65,7 @@ describe('CollectibleCard brand chrome', () => {
   });
 
   it('frames the card in the colours of its own logo: two-tone, with the third as the inner stripe', async () => {
-    const { user } = renderWithProviders(<CollectibleCard data={hydrated} />);
+    const { user } = renderWithProviders(<CollectibleCard data={unthemed} />);
     const front = screen.getByTestId('collectible-card-front');
     expect(front).not.toHaveClass('collectible--brand');
 
@@ -73,12 +80,29 @@ describe('CollectibleCard brand chrome', () => {
   });
 
   it('gives a one-colour logo a two-tone frame of that colour, and no stripe colour', async () => {
-    const { user } = renderWithProviders(<CollectibleCard data={hydrated} />);
+    const { user } = renderWithProviders(<CollectibleCard data={unthemed} />);
     await user.click(screen.getByText('resolve logo color'));
     const front = screen.getByTestId('collectible-card-front');
     expect(front).toHaveClass('collectible--brand');
     expect(front.style.getPropertyValue('--card-c2')).toMatch(/color-mix/);
     expect(front.style.getPropertyValue('--card-c3')).toBe('');
+  });
+
+  it('frames a card from its researched primary and secondary brand colours when the logo gives none', () => {
+    renderWithProviders(<CollectibleCard data={themed('#0b5fff', '#ff8a00')} />);
+    const front = screen.getByTestId('collectible-card-front');
+    expect(front).toHaveClass('collectible--brand');
+    expect(front.style.getPropertyValue('--card-c1')).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(front.style.getPropertyValue('--card-c2')).toBe(clampForChrome('#ff8a00'));
+    expect(front.style.getPropertyValue('--card-c2')).not.toBe(front.style.getPropertyValue('--card-c1'));
+  });
+
+  it('gives a one-colour logo the researched secondary brand colour as the second tone', async () => {
+    const { user } = renderWithProviders(<CollectibleCard data={themed('#0b5fff', '#ff8a00')} />);
+    await user.click(screen.getByText('resolve logo color'));
+    const front = screen.getByTestId('collectible-card-front');
+    expect(front.style.getPropertyValue('--card-c1')).toBe(clampForChrome('#cf5b31'));
+    expect(front.style.getPropertyValue('--card-c2')).toBe(clampForChrome('#ff8a00'));
   });
 });
 

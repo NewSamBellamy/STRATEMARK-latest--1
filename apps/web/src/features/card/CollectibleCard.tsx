@@ -50,12 +50,19 @@ export function CollectibleCard({
     : hasBrandEvidence
       ? triad.accent
       : '#6a756f';
-  // The frame wears the logo's colours: two-tone when the logo has two or more, the brand colour and a
-  // deeper shade of it when it has one. A third colour becomes the thin inner stripe. No logo colours, no
-  // brand frame: the card keeps its standard border.
-  const frame = logoPalette.length > 0 ? {
-    '--card-c1': clampForChrome(logoPalette[0]!),
-    '--card-c2': logoPalette[1] ? clampForChrome(logoPalette[1]) : `color-mix(in srgb, ${clampForChrome(logoPalette[0]!)} 70%, #0b1512)`,
+  // The frame is the brand's primary-to-secondary gradient. The logo's own colours lead when they could be
+  // read; a logo that blocks pixel reads falls back to the researched brand theme, so every branded card
+  // gets the frame. A single known colour gets the researched secondary, else a deeper shade of itself.
+  // A third logo colour becomes the thin inner stripe. No brand evidence at all keeps the standard border.
+  const themedSecondary = brand?.secondary && /^#[0-9a-f]{6}$/i.test(brand.secondary) ? brand.secondary : null;
+  const framePrimary = logoPalette[0] ?? (brand?.primary ? triad.primary : null);
+  const frameSecondary = logoPalette[1]
+    ?? (themedSecondary && themedSecondary.toLowerCase() !== (logoPalette[0] ?? brand?.primary ?? '').toLowerCase()
+      ? themedSecondary
+      : null);
+  const frame = framePrimary ? {
+    '--card-c1': clampForChrome(framePrimary),
+    '--card-c2': frameSecondary ? clampForChrome(frameSecondary) : `color-mix(in srgb, ${clampForChrome(framePrimary)} 70%, #0b1512)`,
     ...(logoPalette[2] ? { '--card-c3': clampForChrome(logoPalette[2]) } : {}),
   } : null;
   const footer = faceFooter(data);
@@ -66,7 +73,7 @@ export function CollectibleCard({
     <div
       className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''} ${frame ? 'collectible--brand' : ''}`}
       style={{ '--card-accent': accent, '--card-highlight': frame ? frame['--card-c2'] : highlight, ...frame } as CSSProperties}
-      data-brand-colors={logoPalette.length > 0 ? logoPalette.join(' ') : undefined}
+      data-brand-colors={logoPalette.length > 0 ? logoPalette.join(' ') : framePrimary ? [framePrimary, frameSecondary].filter(Boolean).join(' ') : undefined}
       data-testid="collectible-card-front"
     >
       <div className="collectible__paper">
