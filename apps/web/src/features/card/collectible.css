@@ -14,7 +14,14 @@
   display: grid;
   gap: 1.25rem 1rem;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 350px));
-  justify-content: space-between;
+  justify-content: start;
+}
+/* Only once three sleeves fit (3 x 350px + 2 gaps) does the spare width go between the columns. With two columns
+   it would push the cards to opposite edges with a hole in the middle, so they stay together, left-aligned. */
+@container (min-width: 1082px) {
+  .card-grid {
+    justify-content: space-between;
+  }
 }
 @container (max-width: 535px) {
   .card-grid {
