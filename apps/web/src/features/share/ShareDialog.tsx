@@ -107,6 +107,7 @@ function PrivateLinkDialog({
   const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
   const [shortUrl, setShortUrl] = useState<string | null>(null);
   const [shortening, setShortening] = useState(false);
+  const [shortError, setShortError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const runId = useRef(0);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -155,6 +156,7 @@ function PrivateLinkDialog({
       setCopied('idle');
       setShortUrl(null);
       setShortening(false);
+      setShortError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -166,9 +168,13 @@ function PrivateLinkDialog({
     if (!url || shortUrl || shortening) return;
     const id = runId.current;
     setShortening(true);
+    setShortError(null);
     try {
       const short = await shortenUrl(url);
-      if (runId.current === id && short) setShortUrl(short);
+      if (runId.current === id) {
+        if (short) setShortUrl(short);
+        else setShortError('The short link could not be made from here. Copy the full link above instead: it works the same.');
+      }
     } finally {
       if (runId.current === id) setShortening(false);
     }
@@ -263,6 +269,7 @@ function PrivateLinkDialog({
                 link, so the user — not the dialog — decides to send it. */}
             {url && !shortUrl && !shortening && (
               <div className="rounded-xl border border-border bg-surface-2/60 px-3.5 py-2.5">
+                {shortError && <p role="alert" className="mb-2 text-[12px] font-medium text-negative">{shortError}</p>}
                 <button
                   type="button"
                   onClick={() => void makeShortLink()}
