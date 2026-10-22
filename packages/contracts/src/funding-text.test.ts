@@ -39,6 +39,43 @@ describe('statedRoundAmount: only the amount the text gives as the round size', 
   });
 });
 
+describe('statedRoundAmount: amounts that are not a single USD round size (red-team B2 to B4)', () => {
+  it('does not read a prefixed dollar (A$, C$, HK$) as US dollars', () => {
+    expect(statedRoundAmount('Raised A$50 million in a Series B')).toBeNull();
+    expect(statedRoundAmount('Closed a C$30 million Series A')).toBeNull();
+    expect(statedRoundAmount('Raises HK$100 million in a Series A')).toBeNull();
+    expect(statedRoundAmount('Raises US$40 million in a Series A')).toEqual({ currency: 'USD', value: 40e6, display: '$40M' });
+  });
+
+  it('says nothing for a range instead of reading its first number', () => {
+    expect(statedRoundAmount('Raised $20-25 million in Series A')).toBeNull();
+    expect(statedRoundAmounts('Raised $20–25 million in Series A')).toHaveLength(0);
+    expect(statedRoundAmounts('Raised $20 to $25 million in Series A')).toHaveLength(0);
+    expect(statedRoundAmounts('Raised $2 or $3 billion in Series A')).toHaveLength(0);
+  });
+
+  it('does not take a cumulative total as the round size', () => {
+    expect(statedRoundAmount('Series D brings total funding to $1.2 billion')).toBeNull();
+    expect(statedRoundAmount('Series C; the company has raised $300 million to date')).toBeNull();
+    expect(statedRoundAmount('Seed round. $75 million raised in total so far')).toBeNull();
+  });
+});
+
+describe('statedLeadInvestors: a name with an initial is not cut at the initial (red-team M1)', () => {
+  it('keeps T. Rowe Price and J.P. Morgan whole', () => {
+    expect(statedLeadInvestors('Series E led by T. Rowe Price and Fidelity')).toEqual(['T. Rowe Price', 'Fidelity']);
+    expect(statedLeadInvestors('Series B led by J.P. Morgan and Accel')).toEqual(['J.P. Morgan', 'Accel']);
+  });
+
+  it('never returns a lone letter as an investor', () => {
+    expect(statedLeadInvestors('Round led by T')).toEqual([]);
+  });
+
+  it('still stops at the end of the sentence', () => {
+    expect(statedLeadInvestors('Raises $5M led by Orion Capital. Zeta Ventures later joined.')).toEqual(['Orion Capital']);
+  });
+});
+
 describe('statedLeadInvestors', () => {
   it('reads one lead and stops at the next clause', () => {
     expect(statedLeadInvestors('Raises $800 million in Series C funding at an $8.3 billion valuation led by Zeta Ventures.')).toEqual(['Zeta Ventures']);
@@ -64,9 +101,25 @@ describe('isFundingWording', () => {
 });
 
 describe('investors derived only from sourced data', () => {
-  it('a board affiliation naming an organisation becomes an investor entry of unknown kind', () => {
-    const got = deriveInvestors({ companyName: 'Fakeco', board: [{ name: 'Ann Lee', affiliation: 'Zeta Ventures' }] });
-    expect(got).toEqual([{ name: 'Zeta Ventures', kind: 'other', note: 'Affiliation of board member Ann Lee.' }]);
+  it('a board seat is NOT evidence of an investment: affiliations are ignored unless asked for (red-team B1)', () => {
+    const board = [
+      { name: 'Hugh Johnston', affiliation: 'The Walt Disney Company' },
+      { name: 'Jane Doe', affiliation: 'Board Member' },
+      { name: 'Reid Hoffman', affiliation: 'Partner, Greylock Partners' },
+      { name: 'Ann Lee', affiliation: 'Zeta Ventures' },
+    ];
+    expect(deriveInvestors({ companyName: 'Microsoft Corporation', board })).toEqual([]);
+  });
+
+  it('when explicitly asked, only an investment firm named by an affiliation becomes an investor entry of unknown kind', () => {
+    const board = [
+      { name: 'Hugh Johnston', affiliation: 'The Walt Disney Company' },
+      { name: 'Jane Doe', affiliation: 'Board Member' },
+      { name: 'Bo Observer', affiliation: 'Board Observer' },
+      { name: 'Ann Lee', affiliation: 'Zeta Ventures' },
+    ];
+    expect(deriveInvestors({ companyName: 'Fakeco', board, includeBoardAffiliations: true }))
+      .toEqual([{ name: 'Zeta Ventures', kind: 'other', note: 'Affiliation of board member Ann Lee.' }]);
   });
 
   it('a partner title is stripped to the firm', () => {
@@ -79,6 +132,8 @@ describe('investors derived only from sourced data', () => {
     expect(organisationOfAffiliation('Fakeco', 'Fakeco')).toBeNull();
     expect(organisationOfAffiliation('Professor, Fake University')).toBeNull();
     expect(organisationOfAffiliation('Chief Scientist')).toBeNull();
+    expect(organisationOfAffiliation('Board Member')).toBeNull();
+    expect(organisationOfAffiliation('Investor')).toBeNull();
     expect(organisationOfAffiliation('')).toBeNull();
     expect(organisationOfAffiliation(null)).toBeNull();
   });
@@ -97,13 +152,14 @@ describe('investors derived only from sourced data', () => {
     const got = deriveInvestors({
       board: [{ name: 'Ann Lee', affiliation: 'Zeta' }],
       investors: [{ name: 'Zeta Ventures', kind: 'vc', note: 'Seed lead.' }],
+      includeBoardAffiliations: true,
     });
     expect(got).toEqual([{ name: 'Zeta Ventures', kind: 'vc', note: 'Seed lead.' }]);
   });
 
   it('invents nothing from an empty company', () => {
     expect(deriveInvestors({})).toEqual([]);
-    expect(deriveInvestors({ board: [{ name: 'Ann Lee', affiliation: '' }] })).toEqual([]);
+    expect(deriveInvestors({ board: [{ name: 'Ann Lee', affiliation: '' }], includeBoardAffiliations: true })).toEqual([]);
   });
 
   it('sameOrganisation ignores generic suffixes only', () => {

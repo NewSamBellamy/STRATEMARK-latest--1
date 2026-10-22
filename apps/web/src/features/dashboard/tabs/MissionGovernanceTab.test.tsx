@@ -114,7 +114,7 @@ describe('mission & governance tab', () => {
     lastRefreshedAt: '2026-10-01T00:00:00.000Z',
   });
 
-  it('lists investors from sourced board affiliations and round leads, not "0" beside a board of backers', async () => {
+  it('lists investors from the leads a round states and never from a board seat (a director\'s employer is not a backer)', async () => {
     const tab = tabWith({
       board: [
         { name: 'Ann Lee', affiliation: 'Zeta Ventures' },
@@ -126,8 +126,8 @@ describe('mission & governance tab', () => {
     renderWithProviders(<MissionGovernanceTab companyId="cmp" />, {
       repository: Object.assign(makeRepo(), { getDashboardTab: tab, getCompany }),
     });
-    expect(await screen.findByText('Investors · 2')).toBeInTheDocument();
-    expect(screen.getByText('Affiliation of board member Ann Lee.')).toBeInTheDocument();
+    expect(await screen.findByText('Investors · 1')).toBeInTheDocument();
+    expect(screen.queryByText('Affiliation of board member Ann Lee.')).not.toBeInTheDocument();
     expect(screen.getByText('Led Seed (2022).')).toBeInTheDocument();
     expect(screen.queryByText(/No named investors/)).not.toBeInTheDocument();
   });
