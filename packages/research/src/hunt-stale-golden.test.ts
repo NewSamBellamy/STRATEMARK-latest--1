@@ -1,5 +1,6 @@
 /**
- * With HUNT_STALE_FIGURES off (owner decision D6) a hunt asks for exactly what it asked for
+ * HUNT_STALE_FIGURES is on by default (2026-10-22). With it switched off (the old owner
+ * decision D6, kept as an option) a hunt asks for exactly what it asked for
  * before any currency work: asking for a stale refresh changes no target and no model call.
  * The stored verified row below is long out of date; it is still "verified" for choosing targets.
  */
@@ -28,18 +29,18 @@ function snapshot(): RepoSnapshot {
   } as unknown as RepoSnapshot;
 }
 
-async function huntWith(options: Parameters<GeminiRepository['huntCompanyMetrics']>[1]) {
+async function huntWith(options: Parameters<GeminiRepository['huntCompanyMetrics']>[1], huntStaleFigures = false) {
   const snap = snapshot();
   const ground = vi.fn(async (_prompt: string) => ({ text: 'No reliable figure.', citations: [], queries: [] }));
   const structure = vi.fn(async (_prompt: string, schema: { parse: (v: unknown) => unknown }) => schema.parse({ figures: [] }));
   const client = { ground, structure } as unknown as LlmClient;
-  const repo = new GeminiRepository({ apiKey: 'test-placeholder', store: { read: () => snap, write: () => undefined }, client, now: () => NOW });
+  const repo = new GeminiRepository({ apiKey: 'test-placeholder', store: { read: () => snap, write: () => undefined }, client, now: () => NOW, huntStaleFigures });
   await repo.huntCompanyMetrics('cmp_1', options);
   return { ground, structure, snap };
 }
 
 describe('hunt targets and model calls with HUNT_STALE_FIGURES off', () => {
-  it('is off by default', () => expect(HUNT_STALE_FIGURES).toBe(false));
+  it('is on by default', () => expect(HUNT_STALE_FIGURES).toBe(true));
 
   it('a stale-refresh request changes no prompt and no call count', async () => {
     const plain = await huntWith(undefined);
@@ -63,5 +64,21 @@ describe('hunt targets and model calls with HUNT_STALE_FIGURES off', () => {
     const before = snapshot().metrics.find((m) => m.metricType === 'arr');
     const { snap } = await huntWith({ refreshStale: true });
     expect(snap.metrics.find((m) => m.metricType === 'arr')).toEqual(before);
+  });
+});
+
+describe('with HUNT_STALE_FIGURES on, a refresh re-hunts the out-of-date verified figure', () => {
+  it('asks for the three-year-old verified ARR again', async () => {
+    const { ground } = await huntWith({ refreshStale: true }, true);
+    const prompt = String(ground.mock.calls[0]![0]);
+    const wanted = prompt.slice(prompt.indexOf('metrics of OpenAI:'), prompt.indexOf('Company: OpenAI'));
+    expect(wanted).toMatch(/\bARR\b/);
+  });
+
+  it('a plain hunt (no refresh) still leaves the verified figure alone', async () => {
+    const { ground } = await huntWith(undefined, true);
+    const prompt = String(ground.mock.calls[0]![0]);
+    const wanted = prompt.slice(prompt.indexOf('metrics of OpenAI:'), prompt.indexOf('Company: OpenAI'));
+    expect(wanted).not.toMatch(/\bARR\b/);
   });
 });

@@ -24,6 +24,24 @@ const article = (value: number, asOf: string, over: Partial<CompanyMetric> = {})
 }) as unknown as CompanyMetric;
 
 describe('compareObservations', () => {
+  // 5b (owner audit 2026-10-22): fast-moving figures only. A reputable newer report replaces a
+  // stronger held valuation once the held one is more than a quarter older; inside that window it does not.
+  const heldValuation = (asOf: string) => fig({ asOf, metricType: 'valuation', value: 130_000_000_000,
+    quote: 'Acme was valued at $130 billion.' });
+  const reportedValuation = (asOf: string, url = 'https://www.reuters.com/a') => ({
+    ...article(300_000_000_000, asOf, { metricType: 'valuation', source: url, citations: [{ title: 'r', url }] }),
+    quotedSupport: { sourceUrl: url, quote: 'Acme was valued at $300 billion.', asOf, value: 300_000_000_000, unit: 'USD', basis: 'valuation' },
+  }) as unknown as CompanyMetric;
+  it('5b: a reputable newer valuation replaces a stronger one held more than 90 days older', () => {
+    expect(compareObservations(reportedValuation('2026-09-15'), heldValuation('2026-03-01'), ctx).decision).toBe('replace');
+  });
+  it('5b: inside 90 days the stronger held valuation stays and the newer one is recorded', () => {
+    expect(compareObservations(reportedValuation('2026-09-15'), heldValuation('2026-08-01'), ctx))
+      .toMatchObject({ decision: 'keep', newerObservation: true });
+  });
+  it('5b: a weak site (aggregator) never displaces a stronger held valuation on date alone', () => {
+    expect(compareObservations(reportedValuation('2026-09-15', 'https://tracxn.com/acme'), heldValuation('2026-03-01'), ctx).decision).toBe('keep');
+  });
   it('a fresh article beats a stale 10-K only if as authoritative; a newer but weaker one is recorded, not adopted', () => {
     const stale10k = fig({ asOf: '2023-12-31' });
     const fresh = article(55_000_000, '2026-09-15');

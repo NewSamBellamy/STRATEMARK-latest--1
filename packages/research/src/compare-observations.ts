@@ -12,7 +12,10 @@
  *   4. Undated never beats dated; both undated: the fresh lookup replaces when it is
  *      at least as authoritative (as hunts always did).
  *   5. Newer and at least as authoritative replaces (the old value is kept dated);
- *      newer but weaker is kept out and recorded as `newerObservation`.
+ *      newer but weaker is kept out and recorded as `newerObservation`, unless it is
+ *      a fast-moving figure (valuation, round, total raised, ARR), page-backed and
+ *      reputable, and the held figure is more than RECENCY_OVERRIDE_DAYS (a quarter)
+ *      older: then it replaces (5b). A filed revenue still outranks a later press number.
  *   6. Older keeps. 7. Same date: values within 2% agree; differing values: the
  *      stronger wins, a tie is a conflict.
  *   8-9. Replaced values are kept, conflicts are capped at 8, nothing is synthesised.
@@ -22,6 +25,7 @@
 import { figureAsOf, metricObservationIdentity, readCurrency, type CompanyMetric } from '@mi/contracts';
 import { assessFigure, laneRank, periodKind, type AssessContext } from './source-assessment';
 import { figurePublisher } from './metric-assessment';
+import { RECENCY_OVERRIDE_DAYS, RECENCY_SENSITIVE_TYPES, daysBetween } from './recency-rank';
 
 export type ObservationDecision = 'replace' | 'keep' | 'conflict' | 'not_comparable';
 export interface ObservationComparison {
@@ -80,8 +84,15 @@ export function compareObservations(next: CompanyMetric, current: CompanyMetric,
       : { decision: 'keep', reason: 'less authoritative than the current figure' };
   }
   if (n.asOf! > c.asOf!) {
-    return atLeast ? { decision: 'replace', reason: `newer figure (${n.asOf}) from an at-least-as-authoritative source` }
-      : { decision: 'keep', reason: `newer figure (${n.asOf}) is less authoritative; the current figure stays`, newerObservation: true };
+    if (atLeast) return { decision: 'replace', reason: `newer figure (${n.asOf}) from an at-least-as-authoritative source` };
+    // 5b. A reputable, page-backed newer report replaces a stronger figure that is more than a
+    //     quarter older (recency-rank.ts): a year-old verified valuation must not hide this
+    //     month's reported one. A weak site (aggregator, unknown) or a search-only lead never does.
+    const gap = daysBetween(c.asOf!, n.asOf!) ?? 0;
+    if (RECENCY_SENSITIVE_TYPES.includes(next.metricType) && gap > RECENCY_OVERRIDE_DAYS && n.lane >= 2 && n.level >= LEVEL_RANK.acceptable) {
+      return { decision: 'replace', reason: `newer reputable figure (${n.asOf}); the held figure is more than ${RECENCY_OVERRIDE_DAYS} days older (${c.asOf})` };
+    }
+    return { decision: 'keep', reason: `newer figure (${n.asOf}) is less authoritative; the current figure stays`, newerObservation: true };
   }
   if (n.asOf! < c.asOf!) return { decision: 'keep', reason: 'older than the current figure' };
   // Same date.

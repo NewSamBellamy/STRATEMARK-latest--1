@@ -92,6 +92,20 @@ describe('provider-supported fast company hydration', () => {
       reportedSupport: { asOf: null, support: { text: openAiSegments.employees } } });
     expect(grounding).toEqual(before);
   });
+  it('prefers the newest dated valuation in the answer over an older one the model picked (owner audit 2026-10-22)', () => {
+    const older = '**Valuation**\nOpenAI had a post-money valuation of $300 billion USD as of March 31, 2025.';
+    const newer = 'OpenAI had a post-money valuation of $500 billion USD as of October 2, 2025.';
+    const { grounding, claim } = openAiFixture({}, [older, newer]);
+    const rows = reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI', website: 'https://openai.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: { valuation: claim(300_000_000_000, 'valuation', older, '2025-03-31') } }),
+      text: grounding!.answerText, grounding, capturedAt: '2026-10-06T00:00:00.000Z' });
+    expect(rows.find(row => row.metricType === 'valuation')).toMatchObject({ value: 500_000_000_000, reportedSupport: { asOf: '2025-10-02' } });
+    // The model's pick of the newer claim is kept as is.
+    const kept = reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI', website: 'https://openai.com',
+      enrichment: enrichmentOutSchema.parse({ metrics: { valuation: claim(500_000_000_000, 'valuation', newer, '2025-10-02') } }),
+      text: grounding!.answerText, grounding, capturedAt: '2026-10-06T00:00:00.000Z' });
+    expect(kept.find(row => row.metricType === 'valuation')).toMatchObject({ value: 500_000_000_000 });
+  });
   it('does not recover an employee figure from the mixed employees-plus-contractors passage alone', () => {
     const { grounding } = openAiFixture({}, [openAiSegments.mixedEmployees]);
     const rows = reportedCompanyMetrics({ companyId: 'openai', companyName: 'OpenAI', website: 'https://openai.com',

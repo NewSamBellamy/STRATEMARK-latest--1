@@ -7,6 +7,7 @@ import type { EnrichmentOut } from './schemas';
 import { describeCurrencyConversion, isConvertibleCurrency, usdPerUnit } from './fx';
 import { summaryIsUnfit } from './company-summary';
 import { dateSpans, withinDate } from './date-digits';
+import { beats, sourceCandidate } from './recency-rank';
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const sentences = (text: string) => text.split(/(?<=[.!?])\s+(?=[A-Z])/);
@@ -940,6 +941,26 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
     const proposal = recovered ? { value: recovered.value, reportedClaim: recovered.selector } : proposedMetric;
     const selector = proposal?.reportedClaim ?? ('passageSupport' in (proposal ?? {}) ? proposedMetric?.passageSupport : undefined);
     if (proposal?.value == null || !selector || selector.basis !== type) return row;
+    const chosen = reportedRowFrom(row, type, proposal.value, selector, recovered);
+    if (!chosen || recovered) return chosen ?? row;
+    // The model picked one claim; the provider answer may also state a NEWER one for the same
+    // metric (an old company page beside this week's report). The newest dated claim the
+    // provider supports wins when it is at least as credible (recency-rank.ts); an undated
+    // or weaker claim never displaces the pick. Both still pass every gate below.
+    const newest = recoverOmittedClaim(input.companyName, input.website, type, trusted, identity.otherCompanies, revenueOnly && type === 'arr');
+    const pickedAsOf = chosen.reportedSupport?.asOf ?? null;
+    if (newest?.selector.asOf && newest.value !== chosen.reportedSupport?.value &&
+      beats(sourceCandidate(type, newest.selector.sourceUrl, newest.selector.asOf, input.website),
+        sourceCandidate(type, chosen.reportedSupport?.support.sources[0]?.url ?? chosen.source, pickedAsOf, input.website))) {
+      return reportedRowFrom(row, type, newest.value, newest.selector, newest) ?? chosen;
+    }
+    return chosen;
+  });
+
+  function reportedRowFrom(row: CompanyMetric, type: MetricType, proposedValue: number,
+    selector: NonNullable<NonNullable<EnrichmentOut['metrics']['arr']>['reportedClaim']>,
+    recovered: ReturnType<typeof recoverOmittedClaim>): CompanyMetric | null {
+    const proposal = { value: proposedValue };
     for (const support of trusted?.supports ?? []) {
       // Recovery chose a specific provider segment. A broader duplicate may
       // contain the same quote but carry the mixed scope we deliberately skipped.
@@ -983,8 +1004,8 @@ export function reportedCompanyMetrics(input: { companyId: string; companyName: 
           methodNote: reportedRowNote(type, proof.data) };
       }
     }
-    return row;
-  });
+    return null;
+  }
 }
 
 // A location or website line is a fact the card already shows elsewhere, not a

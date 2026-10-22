@@ -35,7 +35,7 @@ function repoFor(snap: RepoSnapshot, huntStaleFigures = true) {
   return { repo, hunt };
 }
 
-describe('refreshDeck with HUNT_STALE_FIGURES off (the default)', () => {
+describe('refreshDeck with HUNT_STALE_FIGURES switched off', () => {
   it('adds no hunt at all', async () => {
     const { repo, hunt } = repoFor(deckOf([{ id: 'stale', fresh: false }]), false);
     await repo.refreshDeck('mkt_1');
