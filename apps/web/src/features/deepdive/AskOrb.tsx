@@ -6,7 +6,7 @@
  * or pressed from the keyboard (arrow keys move it, Enter or Space asks).
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { LivingMark } from '@/components/brand/LivingMark';
+import { LivingMark, ORB_CADENCE } from '@/components/brand/LivingMark';
 import './askOrb.css';
 import { cn } from '@/lib/cn';
 
@@ -155,7 +155,8 @@ export function AskOrb({ onAsk, hint }: { onAsk: () => void; hint?: string }) {
       )}
       style={{ left: at.left, top: at.top, width: ORB_SIZE, height: ORB_SIZE }}
     >
-      <LivingMark className="ask-orb__mark h-7 w-7 select-none" />
+      {/* Swims every 30 seconds. The orb is not drawn while the chat is open, so it never swims then. */}
+      <LivingMark className="ask-orb__mark h-7 w-7 select-none" cadence={ORB_CADENCE} />
     </button>
   );
 }
