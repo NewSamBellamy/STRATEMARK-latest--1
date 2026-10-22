@@ -13,6 +13,26 @@ const base = (patch: Partial<MissionGovernanceContent>): MissionGovernanceConten
 });
 const round = (name: string, date: string | null, amountUsd: number | null, leadInvestors: string[] = []) => ({ round: name, date, amountUsd, leadInvestors });
 
+describe('concerns about a named company must trace to the research text (Rule 9)', () => {
+  const NOTES_C = `${NOTES}\nRegulators opened an antitrust inquiry into Acme's pricing in 2025. Acme lobbied against the EU AI Act.`;
+
+  it('keeps a concern the notes state and drops one they never mention', () => {
+    const out = groundGovernanceInNotes(base({ negatives: [
+      'Antitrust inquiry into pricing',
+      'Lobbying against the EU AI Act',
+      'Accused of poisoning a rival water supply',
+    ], positives: ['Founders keep voting control'] }), NOTES_C, 'Acme');
+    expect(out.negatives).toEqual(['Antitrust inquiry into pricing', 'Lobbying against the EU AI Act']);
+    // A positive is not an allegation: it is left as the model wrote it.
+    expect(out.positives).toEqual(['Founders keep voting control']);
+  });
+
+  it('drops a concern made only of words the notes do not contain, and an empty one', () => {
+    const out = groundGovernanceInNotes(base({ negatives: ['', '   ', 'Layoffs followed a failed merger'] }), NOTES_C, 'Acme');
+    expect(out.negatives).toEqual([]);
+  });
+});
+
 describe('governance and funding stay inside what the research stated', () => {
   it('keeps a round the notes state, with its amount, date and lead', () => {
     const out = groundGovernanceInNotes(base({ fundingRounds: [round('Series C', '2025', 6.6e9, ['Thrive Capital'])] }), NOTES);

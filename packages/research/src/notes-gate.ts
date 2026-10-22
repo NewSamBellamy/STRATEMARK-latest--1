@@ -24,6 +24,21 @@ function distinctiveWords(name: string): string[] {
   return name.normalize('NFKC').split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 3 && !GENERIC.test(word));
 }
 
+const FILLER = /^(?:with|from|that|this|their|against|between|toward|towards|over|under|about|into|more|than|have|has|been|being|after|before|while|which|also|risk|risks|issue|issues|concern|concerns|company|firm)$/i;
+
+/**
+ * An allegation or concern about a named company is kept only when the research text it came from
+ * says it: most of its distinctive words (matched by their first four letters, so "lobbying" meets
+ * "lobbied") must appear in the notes. This does not prove the claim, it only stops the structuring
+ * call from adding a concern out of memory. A concern with no usable word is dropped.
+ */
+function tracedToNotes(text: string, notes: string): boolean {
+  const words = [...new Set(text.normalize('NFKC').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 4 && !FILLER.test(word)))];
+  if (words.length === 0) return false;
+  const matched = words.filter((word) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(word.slice(0, 4))}`, 'iu').test(notes)).length;
+  return matched >= Math.ceil(words.length * 0.6);
+}
+
 /** An organisation is named when any distinctive word of it is; a person only when every word is. */
 function named(notes: string, name: string, kind: 'organisation' | 'person'): boolean {
   const words = distinctiveWords(name);
@@ -66,6 +81,7 @@ export function groundGovernanceInNotes(content: MissionGovernanceContent, notes
     fundingRounds,
     investors: deriveInvestors({ companyName, board, fundingRounds, investors: listed }),
     board,
+    negatives: (content.negatives ?? []).filter((concern) => tracedToNotes(concern, notes)),
   };
 }
 
