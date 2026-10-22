@@ -27,10 +27,12 @@ export function nextDueAt(lastRefreshedAt: string | null, cadenceHours: number):
 export function useAutoRefresh(): void {
   const repo = useRepository();
   const hasKey = useApiKey((state) => state.hasKey);
+  const hosted = useApiKey((state) => state.hosted);
   const paused = useResearchControl(state => state.paused);
 
   useEffect(() => {
-    if (paused || (isCommunityDesktop() && !hasKey)) return;
+    // A hosted visitor with no key of their own spends the covered allowance: only when they ask (manual refresh).
+    if (paused || hosted || (isCommunityDesktop() && !hasKey)) return;
     let disposed = false;
     let running = false;
     const allowed = () => !disposed && !useResearchControl.getState().paused && !isLowPower();
@@ -67,5 +69,5 @@ export function useAutoRefresh(): void {
       clearTimeout(boot);
       clearInterval(interval);
     };
-  }, [repo, hasKey, paused]);
+  }, [repo, hasKey, hosted, paused]);
 }
