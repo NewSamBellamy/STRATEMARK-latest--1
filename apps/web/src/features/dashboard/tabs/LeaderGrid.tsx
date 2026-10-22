@@ -1,10 +1,7 @@
 /**
- * LeaderGrid — the Starting five: the human face of the team page.
- *
- * A compact strip above the board with the founders and chiefs, in rank order
- * (see orgRank): headshot, full name, full title. Hover or keyboard focus
- * reveals the person's sourced background; click opens the full profile with
- * grounded dig-deeper.
+ * Verified headshots for people on the dashboard: the lookup, its caches and
+ * the small `WikiAvatar` used across the tabs. (The team page's leadership row
+ * itself now lives in OrgBoard as its first section.)
  *
  * Headshot honesty: photos come from Wikipedia's public REST API and are used
  * ONLY when the article summary actually mentions the company — a mismatched
@@ -12,12 +9,10 @@
  * initials tile. Never fabricated, never guessed.
  */
 import { useEffect, useState } from 'react';
-import type { OrgNode } from '@mi/contracts';
 import { cn } from '@/lib/cn';
 import { fetchWikidataHeadshot } from '@/lib/media/wikidataHeadshot';
 import { loadPersisted, makeLimiter, savePersisted } from '@/lib/media/headshotCache';
 import { LruCache, fetchWithTimeout } from '@/lib/media/lookupCache';
-import { startingFive } from './orgRank';
 
 export interface Headshot {
   thumb: string;
@@ -197,14 +192,6 @@ export function useWikiHeadshot(name: string, companyName: string): Headshot | n
   return shot?.key === key ? shot.shot : null;
 }
 
-const GROUP_RING: Record<OrgNode['group'], string> = {
-  exec: 'ring-indigo-400/60',
-  ai: 'ring-cyan-400/60',
-  product: 'ring-emerald-400/60',
-  design: 'ring-pink-400/60',
-  other: 'ring-slate-300/60',
-};
-
 export function photoCredit(shot: Headshot): string {
   return /wikipedia.org/.test(shot.sourceUrl) ? 'Photo: Wikipedia' : 'Photo: Wikimedia Commons';
 }
@@ -262,102 +249,5 @@ export function WikiAvatar({
         </span>
       )}
     </span>
-  );
-}
-
-function LeaderCard({
-  person,
-  companyName,
-  onOpen,
-}: {
-  person: OrgNode;
-  companyName: string;
-  onOpen: () => void;
-}) {
-  const shot = useWikiHeadshot(person.name, companyName);
-
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="group/leader relative flex min-w-0 items-center gap-3 rounded-xl border border-transparent p-2 text-left transition-colors hover:border-border hover:bg-surface-2 focus-visible:border-border focus-visible:bg-surface-2 lg:flex-col lg:gap-1.5 lg:text-center"
-    >
-      <span
-        className={cn(
-          'grid h-14 w-14 place-items-center overflow-hidden rounded-full bg-primary/10 ring-2 ring-offset-2 ring-offset-surface',
-          GROUP_RING[person.group],
-        )}
-      >
-        {shot ? (
-          <img
-            src={shot.thumb}
-            alt={person.name}
-            title={photoCredit(shot)}
-            className="h-full w-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <span className="font-display text-base font-semibold text-primary-ink">
-            {initialsOf(person.name)}
-          </span>
-        )}
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-1 lg:w-full lg:flex-none lg:gap-1.5">
-        <span className="w-full break-words text-[12.5px] font-semibold leading-tight text-content">
-          {person.name}
-        </span>
-        <span className="w-full break-words text-[11px] leading-snug text-muted">{person.role}</span>
-      </span>
-
-      {/* Hover profile — the sourced background, in place. */}
-      {/* Left-aligned (not centered): a centered popover on a card near the
-          screen's left edge clipped half of every line off-screen. */}
-      <span className="pointer-events-none absolute left-0 top-full z-30 mt-1 hidden w-60 max-w-[70vw] rounded-lg border border-border bg-surface p-3 text-left shadow-card group-hover/leader:block group-focus-visible/leader:block">
-        <span className="block text-[12px] font-semibold text-content">{person.name}</span>
-        <span className="block text-[11px] text-muted">{person.role}</span>
-        <span className="mt-1.5 block text-[11px] leading-relaxed text-content/85">
-          {person.bio?.trim() ||
-            'No sourced background yet — click to open the profile and research them.'}
-        </span>
-        <span className="mt-1.5 block text-[10px] font-medium text-primary-ink">
-          Click for full profile & grounded research →
-        </span>
-      </span>
-    </button>
-  );
-}
-
-export function LeaderGrid({
-  nodes,
-  companyName,
-  onOpenPerson,
-  max = 5,
-}: {
-  nodes: OrgNode[];
-  companyName: string;
-  onOpenPerson: (id: string) => void;
-  /** How many people the strip names. */
-  max?: number;
-}) {
-  // When the whole team fits in the strip, the board already shows everyone.
-  if (nodes.length <= max) return null;
-  const ordered = startingFive(nodes, max);
-  return (
-    <div className="panel overflow-visible p-3" role="group" aria-label="Starting five">
-      <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-muted">
-        Starting five · founders and chiefs
-      </p>
-      {/* Five people: one column of rows below lg, five across from lg. Never a 2+2+1 or 3+2 grid with a hole. */}
-      <div className="grid grid-cols-1 gap-1 lg:grid-cols-5">
-        {ordered.map((p) => (
-          <LeaderCard
-            key={p.id}
-            person={p}
-            companyName={companyName}
-            onOpen={() => onOpenPerson(p.id)}
-          />
-        ))}
-      </div>
-    </div>
   );
 }

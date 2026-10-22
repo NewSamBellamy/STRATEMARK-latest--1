@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { OrgNode } from '@mi/contracts';
 import { companyAccent, onAccent, ProfileCard, type ProfileCompany } from './ProfileCard';
@@ -16,123 +16,55 @@ const company: ProfileCompany = { id: 'cmp', name: 'Acme', logoUrl: null, websit
 const person = (over: Partial<OrgNode> = {}): OrgNode => ({
   id: 'p', name: 'Ada Lovelace', role: 'CEO', group: 'exec', parentId: null, bio: '', ...over,
 });
-const card = (p: OrgNode, extra: { flipped?: boolean; onFlip?: () => void; onOpenProfile?: () => void; reportsTo?: string | null } = {}) => (
-  <ProfileCard person={p} company={company} flipped={extra.flipped ?? false} onFlip={extra.onFlip ?? vi.fn()} onOpenProfile={extra.onOpenProfile ?? vi.fn()} reportsTo={extra.reportsTo} />
+const card = (p: OrgNode, extra: { onOpenProfile?: () => void; variant?: 'lead' | 'compact' } = {}) => (
+  <ProfileCard person={p} company={company} onOpenProfile={extra.onOpenProfile ?? vi.fn()} variant={extra.variant} />
 );
-const front = (c: HTMLElement) => within(c.querySelector<HTMLElement>('[data-face="front"]')!);
-const back = (c: HTMLElement) => within(c.querySelector<HTMLElement>('[data-face="back"]')!);
 
 describe('ProfileCard', () => {
-  it('shows the no-career note by default and omits it when the group says it once', () => {
-    const { container, rerender } = render(card(person()));
-    expect(container.textContent).toMatch(/No career details reported/);
-    rerender(<ProfileCard person={person()} company={company} flipped={false} onFlip={vi.fn()} onOpenProfile={vi.fn()} careerNote={false} />);
-    expect(container.textContent).not.toMatch(/No career details reported/);
-  });
-
-  it('turns over on press and reflects the state in aria-pressed', async () => {
-    const onFlip = vi.fn();
-    const { rerender } = render(card(person(), { onFlip }));
-    const flip = screen.getByRole('button', { name: /Ada Lovelace, CEO.*turn the card over/i });
-    expect(flip).toHaveAttribute('aria-pressed', 'false');
-    await userEvent.click(flip);
-    expect(onFlip).toHaveBeenCalledTimes(1);
-    rerender(card(person(), { onFlip, flipped: true }));
-    expect(screen.getByRole('button', { name: /Ada Lovelace, CEO.*turn the card over/i, hidden: true })).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('flips from a small icon-only button that carries the accessible label', () => {
-    const { container } = render(card(person()));
-    const flip = front(container).getByRole('button', { name: /Ada Lovelace, CEO.*turn the card over/i });
-    expect(flip.textContent).toBe('');
-    expect(flip.querySelector('svg')).not.toBeNull();
-    expect(flip).toHaveClass('h-6', 'w-6');
-  });
-
-  it('makes the hidden face inert rather than aria-hidden, and swaps it on flip', () => {
-    const { container, rerender } = render(card(person()));
-    expect(container.querySelector('[data-face="back"]')).toHaveAttribute('inert');
-    expect(container.querySelector('[data-face="front"]')).not.toHaveAttribute('inert');
-    expect(container.querySelector('[aria-hidden="true"]:not([data-pin]):not(svg):not(span)')).toBeNull();
-    rerender(card(person(), { flipped: true }));
-    expect(container.querySelector('[data-face="front"]')).toHaveAttribute('inert');
-    expect(container.querySelector('[data-face="back"]')).not.toHaveAttribute('inert');
-  });
-
-  it('flips back on Escape', async () => {
-    const onFlip = vi.fn();
-    render(card(person(), { onFlip, flipped: true }));
-    await userEvent.click(screen.getByRole('button', { name: /turn Ada Lovelace's card back over/i }));
-    onFlip.mockClear();
-    await userEvent.keyboard('{Escape}');
-    expect(onFlip).toHaveBeenCalledTimes(1);
-  });
-
-  it('reaches the profile from the front without flipping', async () => {
+  it('is one button, labelled with name and role, that opens the profile', async () => {
     const onOpen = vi.fn();
-    const onFlip = vi.fn();
-    const { container } = render(card(person(), { onOpenProfile: onOpen, onFlip }));
-    await userEvent.click(front(container).getByRole('button', { name: /Open Ada Lovelace's profile/ }));
+    render(card(person(), { onOpenProfile: onOpen }));
+    const buttons = screen.getAllByRole('button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAccessibleName('Ada Lovelace, CEO. Open profile');
+    await userEvent.click(buttons[0]!);
     expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(onFlip).not.toHaveBeenCalled();
   });
 
-  it('shows no stat lines and an honest foot line when nothing was reported', () => {
+  it('shows only name and role when nothing else was reported, never "Not reported"', () => {
     const { container } = render(card(person()));
     expect(container.querySelectorAll('[data-stat]')).toHaveLength(0);
-    const empty = front(container).getByText('No career details reported');
-    // a quiet line of muted text, not a filled pill or a button
-    expect(empty.tagName).toBe('P');
-    expect(empty.closest('button')).toBeNull();
-    expect(empty.getAttribute('style')).toBeNull();
-    expect(front(container).queryByText('Not reported')).not.toBeInTheDocument();
-    // the company name is not used as filler
-    expect(front(container).queryByText('Acme')).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/not reported|no career details/i);
+    expect(container.textContent).not.toMatch(/Acme/);
   });
 
   it('shows a stat line only for a non-empty field, and treats a written-out gap as empty', () => {
     const { container } = render(card(person({ tenure: '2019 to now', priorCompany: 'Not reported', notableProject: '  ' })));
-    const lines = [...container.querySelectorAll('[data-stat]')].map((l) => l.getAttribute('data-stat'));
-    expect(lines).toEqual(['tenure']);
+    expect([...container.querySelectorAll('[data-stat]')].map((l) => l.getAttribute('data-stat'))).toEqual(['tenure']);
+    expect(container.textContent).not.toMatch(/Not reported/);
   });
 
-  it('footnotes a stat line to a source on the back, and says so when there is no source link', () => {
-    const { container } = render(card(person({ tenure: '2019 to now', supportingQuote: 'Lovelace has led Acme since 2019.' }), { flipped: true }));
-    const line = container.querySelector('[data-stat="tenure"]')!;
-    expect(line).toHaveTextContent('2019 to now');
-    expect(line.querySelector('sup')).toHaveTextContent('1');
-    expect(back(container).getByText(/No source link/)).toBeInTheDocument();
-    expect(back(container).getByText(/Lovelace has led Acme since 2019/)).toBeInTheDocument();
+  it('gives a leadership card a quiet function tag and the reported background', () => {
+    const { container } = render(card(person({ bio: 'Example News (original page not retrieved): "Ran the analytical engine."' }), { variant: 'lead' }));
+    expect(container.querySelector('[data-variant="lead"]')).not.toBeNull();
+    expect(screen.getByText('Executive')).toBeInTheDocument();
+    expect(screen.getByText('Ran the analytical engine.')).toBeInTheDocument();
   });
 
-  it('lists the source with its domain, quote and retrieval date', () => {
-    const { container } = render(card(person({
-      tenure: '2019 to now', sourceUrl: 'https://www.news.example/a', supportingQuote: 'Lovelace has led Acme since 2019.', sourceRetrievedAt: '2026-07-30T10:00:00Z',
-    }), { flipped: true }));
-    expect(back(container).getByRole('link', { name: 'news.example' })).toHaveAttribute('href', 'https://www.news.example/a');
-    expect(back(container).getByText(/retrieved 2026-07-30/)).toBeInTheDocument();
+  it('keeps a compact card to name, role and facts', () => {
+    render(card(person({ bio: 'Ran the analytical engine.' })));
+    expect(screen.queryByText('Ran the analytical engine.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Executive')).not.toBeInTheDocument();
   });
 
-  it('shows the full bio and who the person reports to on the back', () => {
-    const bio = 'Word '.repeat(80).trim();
-    const { container } = render(card(person({ bio }), { flipped: true, reportsTo: 'Grace Hopper' }));
-    expect(back(container).getByText(bio)).toBeInTheDocument();
-    expect(back(container).getByText('Grace Hopper')).toBeInTheDocument();
-  });
-
-  it('never clamps or truncates a name or title', () => {
-    const { container } = render(card(person({ name: 'Blanche Savary de Beauregard', role: 'General Counsel & Board Secretary and a very long title' })));
-    expect(container.querySelector('.truncate, [class*="line-clamp"]')).toBeNull();
-  });
-
-  describe('MOVING ribbon', () => {
+  describe('move tag', () => {
     const recent = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 7);
     const old = new Date(Date.now() - 800 * 86_400_000).toISOString().slice(0, 7);
     const move = (over: Record<string, unknown>) => ({ move: { kind: 'joined', date: recent, sourceUrl: 'https://news.example/a', ...over } }) as Partial<OrgNode>;
 
     it('shows for a sourced move from the last year', () => {
       const { container } = render(card(person(move({}))));
-      expect(container.querySelector('[data-move-ribbon]')).toHaveTextContent(/JOINED · /);
+      expect(container.querySelector('[data-move-ribbon]')).toHaveTextContent(/Joined · /i);
     });
 
     it('does not show with no move, an old move or an unsourced move', () => {
@@ -146,14 +78,15 @@ describe('ProfileCard', () => {
 
   it('shows initials, not a made-up portrait, when no verified headshot or photo exists', () => {
     render(card(person()));
-    expect(screen.queryByRole('img', { name: 'Ada Lovelace' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
     expect(screen.getByText('AL')).toBeInTheDocument();
   });
 
   it('shows a verified headshot with its credit', () => {
     render(card(person({ name: 'Pic Person' })));
-    expect(screen.getByRole('img', { name: 'Pic Person' })).toHaveAttribute('src', 'https://upload.example/pic.jpg');
-    expect(screen.getByText('A. Photographer, CC BY-SA 4.0')).toBeInTheDocument();
+    const img = screen.getByRole('img', { name: 'Pic Person' });
+    expect(img).toHaveAttribute('src', 'https://upload.example/pic.jpg');
+    expect(img).toHaveAttribute('title', 'A. Photographer, CC BY-SA 4.0');
   });
 
   it('uses a supplied photo only when it is a web address', () => {
@@ -163,21 +96,9 @@ describe('ProfileCard', () => {
     expect(screen.queryByRole('img', { name: 'Ada Lovelace' })).not.toBeInTheDocument();
   });
 
-  it('links the source only when it is a web address', () => {
-    const { container, rerender } = render(card(person({ sourceUrl: 'https://news.example/a' }), { flipped: true }));
-    expect(back(container).getByRole('link', { name: 'news.example' })).toHaveAttribute('href', 'https://news.example/a');
-    for (const sourceUrl of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', '//evil.example/x']) {
-      rerender(card(person({ sourceUrl }), { flipped: true }));
-      expect(back(container).queryByRole('link')).not.toBeInTheDocument();
-      expect(back(container).getByText(/No source link/)).toBeInTheDocument();
-    }
-  });
-
-  it('opens the profile from the back', async () => {
-    const onOpen = vi.fn();
-    const { container } = render(card(person(), { onOpenProfile: onOpen, flipped: true }));
-    await userEvent.click(back(container).getByRole('button', { name: /Open Ada Lovelace's profile/ }));
-    expect(onOpen).toHaveBeenCalledTimes(1);
+  it('never truncates a name or title', () => {
+    const { container } = render(card(person({ name: 'Blanche Savary de Beauregard', role: 'General Counsel & Board Secretary and a very long title' })));
+    expect(container.querySelector('.truncate')).toBeNull();
   });
 });
 
