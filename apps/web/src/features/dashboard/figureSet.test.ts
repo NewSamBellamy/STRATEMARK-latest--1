@@ -29,6 +29,15 @@ describe('figure currency', () => {
   it('says nothing when two foreign currencies are named, rather than guessing', () => {
     expect(figureCurrency(metric({ methodNote: 'EUR and GBP figures differ' }))).toBeNull();
   });
+  it('ignores a euro amount mentioned far from the stored number (a dollar figure stays dollars)', () => {
+    const far = 'Valued at $11.7B in the round announcement published by the company this quarter. Separately it bought a small studio for €40M.';
+    expect(figureCurrency(metric({ methodNote: far }))).toBeNull();
+    expect(figureDisplay(metric({ methodNote: far }))).toBe('$11.7B');
+  });
+  it('still reads a currency that sits next to the stored number', () => {
+    expect(figureCurrency(metric({ methodNote: 'Round valued at €11.7B, reported in euros' }))?.code).toBe('EUR');
+    expect(figureCurrency(metric({ methodNote: 'Valuation 11.7 billion euros per the filing' }))?.code).toBe('EUR');
+  });
   it('only applies to money figures', () => {
     expect(figureCurrency(metric({ metricType: 'employees', methodNote: 'reported in euros' }))).toBeNull();
   });
