@@ -25,8 +25,10 @@
     transform 180ms ease,
     filter 180ms ease;
 }
+/* Under a mouse the card leans a few degrees toward the pointer (pointerSheen.ts
+   sets --tilt-x/y); without a pointer the vars are unset and it simply lifts. */
 .card-sleeve__open:hover {
-  transform: translateY(-5px);
+  transform: translateY(-5px) perspective(1100px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
   filter: saturate(1.03);
 }
 /* A status badge sits on the sleeve, not inside the card that lifts, so it rises by the same amount at the same pace. */
@@ -82,8 +84,12 @@
     #d8d1c0 52%,
     color-mix(in srgb, var(--card-highlight) 58%, #ddd5bf)
   );
+  /* Card stock: two thin offset layers read as the board's cut edge under the
+     face, then a contact shadow and a soft drop. */
   box-shadow:
-    0 2px 2px #102c2524,
+    0 1px 0 #efe9da,
+    0 2px 0 #b8af99,
+    0 3px 2px #102c2524,
     0 18px 30px -14px #102c2566,
     inset 0 1px 0 #ffffffb3,
     inset 0 0 0 1px #ffffff8f;
@@ -123,7 +129,9 @@
 }
 .card-sleeve__open:hover .collectible {
   box-shadow:
-    0 3px 4px #102c2526,
+    0 1px 0 #efe9da,
+    0 2px 0 #b8af99,
+    0 4px 4px #102c2526,
     0 24px 38px -16px #102c2570,
     inset 0 1px 0 #ffffffc7,
     inset 0 0 0 1px #ffffff9c;
