@@ -59,7 +59,7 @@ test('culture and vice tabs open signal research instead of company dashboards',
   await viceCard.click();
 
   dialog = page.getByRole('dialog');
-  await expect(dialog.getByText(/not asserted as unverified fact/i)).toBeVisible();
+  await expect(dialog.getByText(/quoted from its source/i)).toBeVisible();
   await expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeVisible();
   await expect(dialog.getByRole('region', { name: 'Core company figures' })).toHaveCount(0);
 });

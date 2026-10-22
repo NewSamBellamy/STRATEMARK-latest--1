@@ -20,7 +20,7 @@ export default function SavedCardsPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <h1 className="mb-6 font-display text-2xl font-semibold text-content">
-        Saved Cards
+        Saved cards
       </h1>
       <QueryBoundary
         query={cards}
@@ -32,6 +32,7 @@ export default function SavedCardsPage() {
             title="No saved cards yet"
             description="Bookmark company cards from any deck to save them here for quick access."
             icon={<BookmarkSimple weight="duotone" size={24} />}
+            page
             action={
               <>
                 <p className="text-xs text-faint">Look for the bookmark icon on a company card.</p>

@@ -89,11 +89,11 @@ export function Sidebar() {
 
       {/* Primary Navigation */}
       <nav className="flex shrink-0 flex-col gap-0.5" aria-label="Primary">
-        <SidebarLink to="/" end icon={PlusCircle} label="New Deck" collapsed={collapsed} primary />
+        <SidebarLink to="/" end icon={PlusCircle} label="New deck" collapsed={collapsed} primary />
         {/* Collapsed: no room for the inline list, so keep a link to the full history page. */}
         {hasToday && <SidebarLink to="/today" icon={Sun} label="Today" collapsed={collapsed} />}
-        <SidebarLink to="/history" icon={Stack} label="All Decks" collapsed={collapsed} />
-        <SidebarLink to="/saved" icon={BookmarkSimple} label="Saved Cards" collapsed={collapsed} />
+        <SidebarLink to="/history" icon={Stack} label="All decks" collapsed={collapsed} />
+        <SidebarLink to="/saved" icon={BookmarkSimple} label="Saved cards" collapsed={collapsed} />
         <SidebarLink to="/reports" icon={FileText} label="Reports" collapsed={collapsed} />
         <SettingsTrigger collapsed={collapsed} />
         {isHostedBeta() && <SidebarLink to="/beta" icon={Info} label="About this beta" collapsed={collapsed} />}

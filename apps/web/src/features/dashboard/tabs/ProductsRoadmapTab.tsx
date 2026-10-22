@@ -160,7 +160,7 @@ function ProductTable({ products, onOpen, showStatus = true }: { products: Produ
       <table className="w-full text-left text-[13px]">
         <thead>
           <tr className="border-b border-border bg-surface-2/60 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-faint">
-            <th className="px-3 py-2">Product</th>
+            <th className="px-3 py-2 md:w-56">Product</th>
             <th className="hidden px-3 py-2 md:table-cell">Description</th>
             {showStatus && <th className="px-3 py-2">Status</th>}
             {showSource && <th className="px-3 py-2">Source</th>}
@@ -172,8 +172,8 @@ function ProductTable({ products, onOpen, showStatus = true }: { products: Produ
             const desc = p.description ? splitSearchReport(p.description).text : '';
             return (
               <tr key={p.name} className="cursor-pointer border-b border-border last:border-b-0 hover:bg-surface-2/50" onClick={() => onOpen(p)}>
-                <td className="px-3 py-1.5 font-medium text-content md:whitespace-nowrap">
-                  <button type="button" className="text-left" onClick={(e) => { e.stopPropagation(); onOpen(p); }}>{p.name}</button>
+                <td className="px-3 py-1.5 font-medium text-content md:w-56 md:max-w-56">
+                  <button type="button" className="block max-w-full text-left md:truncate" title={p.name} onClick={(e) => { e.stopPropagation(); onOpen(p); }}>{p.name}</button>
                 </td>
                 <td className="hidden max-w-0 px-3 py-1.5 text-muted md:table-cell md:w-full">
                   <span className="block truncate" title={desc || undefined}>{desc || 'No description retained.'}</span>

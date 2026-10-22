@@ -14,8 +14,8 @@
 import { useMemo, useState } from 'react';
 import { formatDate } from '@/lib/format';
 import { Link, useParams } from 'react-router-dom';
+import { BackLink } from '@/components/ui/BackLink';
 import {
-  ArrowLeft,
   CheckCircle2,
   Loader2,
   Newspaper,
@@ -100,13 +100,7 @@ export default function BriefingPage() {
   return (
     <div className="w-full max-w-[900px] px-2 sm:px-4">
       <div className="brf-no-print mb-5">
-        <Link
-          to={`/markets/${marketId}/deck`}
-          className="inline-flex items-center gap-1 text-[12px] font-medium text-muted transition-colors hover:text-primary-ink"
-        >
-          <ArrowLeft className="h-3 w-3" />
-          Back to deck
-        </Link>
+        <BackLink to={`/markets/${marketId}/deck`}>Back to deck</BackLink>
       </div>
 
       {/* ── No engine / no key ── */}

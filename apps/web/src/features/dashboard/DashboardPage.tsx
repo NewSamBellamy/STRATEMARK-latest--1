@@ -228,15 +228,15 @@ function AgentWorkingPill({ companyId, assembly }: { companyId: string; assembly
     : 'dashboard sections';
   return (
     <span
-      className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted"
+      className="ml-auto flex min-w-0 items-center gap-1.5 whitespace-nowrap pb-1 text-[11px] font-medium text-muted max-lg:shrink-0"
       title="Desk agents are researching these sections in the background — each finishes and fills in live."
     >
       <span className="relative flex h-1.5 w-1.5">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
       </span>
-      Researching {named}…
-      <span className="tabular-nums text-faint">{assembly.filled} of {assembly.total} sections ready</span>
+      <span className="truncate">Researching {named}…</span>
+      <span className="tabular-nums text-faint lg:max-xl:hidden">{assembly.filled} of {assembly.total} sections ready</span>
     </span>
   );
 }
@@ -507,7 +507,9 @@ export default function DashboardPage() {
                 logoUrl={c.logoUrl}
                 className="h-14 w-14 border border-border"
               />
-              <div className="min-w-[14rem] flex-1 basis-[60%]">
+              {/* Phones: this wrapper dissolves so the name sits beside the logo and the details run full width below. */}
+              <div className="contents lg:block lg:min-w-[14rem] lg:flex-1 lg:basis-[60%]">
+                <div className="min-w-0 flex-1 lg:flex-none">
                 <h1 className="font-display text-2xl font-semibold text-content">{c.name}</h1>
                 {ownershipLabel(c.ownership) && (
                   <SafeLink
@@ -521,6 +523,8 @@ export default function DashboardPage() {
                     {ownershipLabel(c.ownership)}
                   </SafeLink>
                 )}
+                </div>
+                <div className="order-1 basis-full lg:order-none">
                 {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && <p className="text-sm text-muted">{headerSubtitle}</p>}
                 <KeyFacts
                   hq={c.hqLocation}
@@ -528,7 +532,9 @@ export default function DashboardPage() {
                   founded={founded}
                   filingsUrl={reportsToSec(metrics.data ?? []) ? secFilingsUrl(c.name) : null}
                 />
+                </div>
               </div>
+              <div className="order-2 flex flex-wrap items-center gap-2 lg:order-none lg:shrink-0">
               {!readOnly && (
                 <ExportMenu
                   className="shrink-0"
@@ -554,6 +560,7 @@ export default function DashboardPage() {
                 label="Research"
                 className="h-8 w-8 shrink-0"
               />
+              </div>
             </header>
 
             {/* Context-aware research row: ask anything + this company's intel file. */}

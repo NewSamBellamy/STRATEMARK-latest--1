@@ -1,8 +1,9 @@
 import { sourceHref } from '@/lib/sourceHref';
 import { useMemo } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { BackLink } from '@/components/ui/BackLink';
 import { SafeMarkdown } from '@/components/ResearchMarkdown';
-import { ArrowLeft, ExternalLink, Target } from 'lucide-react';
+import { ExternalLink, Target } from 'lucide-react';
 import {
   CartesianGrid,
   Scatter,
@@ -76,14 +77,8 @@ export default function OpportunityPage() {
   const yAxis = useMemo(() => shareAxis(points.length ? Math.max(...points.map((p) => p.share)) : 1), [points]);
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <Link
-        to={`/markets/${marketId}/deck`}
-        className="mb-3 inline-flex items-center gap-1.5 text-sm text-muted hover:text-content"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to deck
-      </Link>
+    <div className="mx-auto max-w-3xl">
+      <BackLink to={`/markets/${marketId}/deck`} className="mb-3">Back to deck</BackLink>
       <div className="mb-1 flex items-center gap-2 text-primary-ink">
         <Target className="h-5 w-5" />
         <span className="text-xs font-semibold uppercase tracking-wide">Market opportunity</span>
@@ -94,7 +89,7 @@ export default function OpportunityPage() {
 
       {/* Positioning map from real deck data (no LLM in the chart). */}
       <div className="panel mt-5 p-5">
-        <h2 className="font-display text-sm font-semibold text-content">
+        <h2 className="font-display text-base font-semibold text-content">
           Positioning map — team size vs. market share        </h2>
         {points.length > 0 ? (
           <div className="mt-2 h-[340px]" >
@@ -200,7 +195,7 @@ export default function OpportunityPage() {
 
       {/* Grounded whitespace thesis — re-run from the button (or right-click). */}
       <div className="mt-6 flex items-center justify-between gap-3">
-        <h2 className="font-display text-sm font-semibold text-content">Where a new entrant could win</h2>
+        <h2 className="font-display text-base font-semibold text-content">Where a new entrant could win</h2>
         <button
           type="button"
           className="btn-ghost px-3 py-1.5 text-[12px]"

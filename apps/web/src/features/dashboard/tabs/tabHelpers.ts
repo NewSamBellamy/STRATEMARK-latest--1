@@ -106,7 +106,7 @@ export const EVENT_KIND_LABEL: Record<EventKind, string> = {
  */
 export function classifyEvent(title: string, detail = ''): EventKind {
   const t = `${title} ${detail}`.toLowerCase();
-  if (/\b(series [a-z]|seed round|funding|raises|raised|valuation|ipo|spac|tender offer|investment|invests?|round)\b/.test(t)) return 'funding';
+  if (/\b(series [a-z]|seed round|funding|raises|raised|valuation|ipo|spac|tender offer|debt financing|credit facility|investment|invests?|round)\b/.test(t)) return 'funding';
   if (/\b(launch(es|ed)?|releas(es|ed)?|unveil(s|ed)?|introduc(es|ed)|debut(s|ed)?|ships?|shipped|beta)\b/.test(t)) return 'product';
   if (/\b(ceo|cto|cfo|coo|chair(man|woman)?|president|appoint(s|ed)?|hires?d?|steps? down|resign(s|ed)?|joins?|joined|succeed(s|ed)?)\b/.test(t)) return 'leadership';
   if (/\b(found(ed|ing)|incorporat(ed|ion)|acqui(res|red|sition)|merg(es|ed|er)|spin-?off|partnership|headquarter|relocat(es|ed)|expands?|expansion|lawsuit|settle(s|d|ment)|regulat\w*)\b/.test(t)) return 'corporate';

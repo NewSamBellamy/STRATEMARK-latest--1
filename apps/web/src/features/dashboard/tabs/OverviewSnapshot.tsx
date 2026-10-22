@@ -67,6 +67,11 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
   const hasSignals = mood.total > 0 || Boolean(positive || concern);
   const panels = [leaders.length > 0, Boolean(funding), hasSignals].filter(Boolean).length;
   const leadersWide = leaders.length > 1 && panels === 2;
+  // Name only the panels actually shown, so the heading never promises funding that is absent.
+  const parts = [leaders.length > 0 && 'Leadership', Boolean(funding) && 'funding', hasSignals && 'signals'].filter(Boolean) as string[];
+  const sectionTitle = parts.length > 1
+    ? `${parts.slice(0, -1).join(', ')} & ${parts[parts.length - 1]}`
+    : (parts[0] ?? 'Leadership, funding & signals');
 
   if (leaders.length === 0 && !funding && !hasSignals) {
     return (
@@ -86,7 +91,7 @@ export function OverviewSnapshot({ companyId, companyName }: { companyId: string
   }
 
   return (
-    <TabSection title="Leadership, funding & signals">
+    <TabSection title={sectionTitle}>
       <div className={cn('grid gap-4', leadersWide ? LEADERS_WIDE : COLUMNS[panels])}>
         {leaders.length > 0 && (
           <div className="panel min-w-0 p-5">
@@ -198,8 +203,8 @@ export function MarketPeers({ companyId }: { companyId: string }) {
                 <tr key={row.companyId} className={cn(row.isSelf && 'bg-primary/5')} aria-current={row.isSelf ? 'true' : undefined}>
                   <th scope="row" className="px-3 py-2 text-left font-medium text-content">
                     {row.isSelf
-                      ? <span className="inline-flex items-center gap-2"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{shortCompanyName(row.name)} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
-                      : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline"><Logo name={row.name} website={row.websiteUrl} logoUrl={row.logoUrl} bare className="h-4 w-4" />{shortCompanyName(row.name)}</Link>}
+                      ? <span className="inline-flex items-center gap-2">{shortCompanyName(row.name)} <span className="text-[11px] font-normal text-faint">(this company)</span></span>
+                      : <Link to={to(row.companyId)} className="inline-flex items-center gap-2 hover:text-primary-ink hover:underline">{shortCompanyName(row.name)}</Link>}
                   </th>
                   {row.cells.map((cell, i) => (
                     <td key={PEER_COLUMNS[i]![0]} className="whitespace-nowrap px-3 py-2 text-right tabular-nums">

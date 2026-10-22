@@ -9,7 +9,7 @@ export default function NotFoundPage() {
         The view you were looking for doesn’t exist or has moved.
       </p>
       <Link to="/history" className="btn-primary mt-6 inline-flex">
-        Back to All Decks
+        Back to all decks
       </Link>
     </div>
   );

@@ -1,5 +1,6 @@
-import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Clock } from 'lucide-react';
+import { useParams } from 'react-router-dom';
+import { RefreshCw, Clock } from 'lucide-react';
+import { BackLink } from '@/components/ui/BackLink';
 import {
   REFRESH_CADENCES,
   REFRESH_CADENCE_LABELS,
@@ -21,13 +22,7 @@ export default function MarketSettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <Link
-        to={`/markets/${marketId}/deck`}
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted hover:text-content"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to deck
-      </Link>
+      <BackLink to={`/markets/${marketId}/deck`} className="mb-4">Back to deck</BackLink>
       <h1 className="font-display text-2xl font-semibold text-content">Deck settings</h1>
 
       <QueryBoundary query={market}>

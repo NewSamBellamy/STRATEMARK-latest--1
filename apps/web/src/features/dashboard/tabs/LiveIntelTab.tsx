@@ -387,7 +387,7 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
               <TopStories items={all} onOpen={setOpenId} company={companyRec ? { name: companyRec.name, website: companyRec.websiteUrl, logoUrl: companyRec.logoUrl } : undefined} />
               {(result.content.videos?.length ?? 0) > 0 && (
                 <section aria-label="Videos from the company">
-                  <h4 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-muted">From their channel</h4>
+                  <h4 className="mb-3 text-[13px] font-semibold text-muted">From their channel</h4>
                   <VideoStrip videos={result.content.videos!} />
                 </section>
               )}
@@ -447,11 +447,11 @@ export function LiveIntelTab({ companyId }: { companyId: string }) {
               <div className="space-y-4">
                 {buckets.map(({ bucket, items }) => (
                   <section key={bucket} aria-label={RECENCY_LABEL[bucket]}>
-                    <h4 className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-muted">
+                    <h4 className="mb-1.5 flex items-center gap-2 text-[13px] font-semibold text-muted">
                       {RECENCY_LABEL[bucket]}
                       <span className="font-normal tabular-nums text-faint">{items.length}</span>
                       {bucket === 'undated' && (
-                        <span className="font-normal normal-case tracking-normal text-faint">
+                        <span className="font-normal text-faint">
                           · found by research {formatRelative(items.reduce((a, i) => (i.publishedAt > a ? i.publishedAt : a), items[0]!.publishedAt))}
                         </span>
                       )}

@@ -30,8 +30,8 @@ test('every screen titles its tab, and the title follows the user from screen to
 test('leaving a screen for another replaces the title, with no stale one left behind', async ({ page }) => {
   await page.goto('/#/today');
   await expect(page).toHaveTitle('Today · Stratemark');
-  await page.getByText('All Decks', { exact: true }).first().click();
+  await page.getByText('All decks', { exact: true }).first().click();
   await expect(page).toHaveTitle('All decks · Stratemark');
-  await page.getByText('Saved Cards', { exact: true }).first().click();
+  await page.getByText('Saved cards', { exact: true }).first().click();
   await expect(page).toHaveTitle('Saved cards · Stratemark');
 });

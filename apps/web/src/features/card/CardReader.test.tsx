@@ -152,7 +152,7 @@ describe('CardReader', () => {
     renderWithProviders(<CardReader data={cwc} open onOpenChange={() => {}} />);
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.queryByRole('tab')).not.toBeInTheDocument();
-    expect(dialog.getByText(/not asserted as unverified fact/i)).toBeInTheDocument();
+    expect(dialog.getByText(/quoted from its source/i)).toBeInTheDocument();
     expect(dialog.getByRole('button', { name: /ask about this finding/i })).toBeInTheDocument();
     expect(dialog.queryByRole('link', { name: /open full company dashboard/i })).not.toBeInTheDocument();
     expect(dialog.queryByRole('region', { name: 'Core company figures' })).not.toBeInTheDocument();

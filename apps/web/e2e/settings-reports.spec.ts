@@ -48,7 +48,7 @@ test('Reports: the saved report is listed, opens, and is sourced like the deck i
 
 test('Saved cards, All decks and Beta open, and an unknown address says so instead of showing a blank page', async ({ page }) => {
   await page.goto('/#/saved');
-  await expect(page.getByRole('heading', { name: 'Saved Cards' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Saved cards' })).toBeVisible();
   await page.goto('/#/history');
   await expect(page.getByRole('heading', { name: 'All decks' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Frontier AI Ecosystem/ }).first()).toBeVisible();

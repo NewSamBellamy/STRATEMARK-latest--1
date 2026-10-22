@@ -47,8 +47,9 @@ describe('the Reports page', () => {
       mkt('new', 'New deck', '2026-05-01T00:00:00Z'),
     ]);
     renderWithProviders(<ReportsListPage />, { repository });
-    expect(await screen.findByRole('link', { name: 'Create a report' })).toHaveAttribute('href', '/markets/new/deck');
-    expect(screen.getByText(/Opens New deck/)).toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: 'Create a report' });
+    expect(link).toHaveAttribute('href', '/markets/new/deck');
+    expect(link).toHaveAttribute('title', expect.stringMatching(/Opens New deck/));
   });
 
   it('with no decks, sends Create a report to All Decks with a hint', async () => {
@@ -56,8 +57,9 @@ describe('the Reports page', () => {
     vi.spyOn(repository, 'listReports').mockResolvedValue([]);
     vi.spyOn(repository, 'listMarkets').mockResolvedValue([]);
     renderWithProviders(<ReportsListPage />, { repository });
-    expect(await screen.findByRole('link', { name: 'Create a report' })).toHaveAttribute('href', '/history');
-    expect(screen.getByText(/You need a deck first/)).toBeInTheDocument();
+    const link = await screen.findByRole('link', { name: 'Create a report' });
+    expect(link).toHaveAttribute('href', '/history');
+    expect(link).toHaveAttribute('title', expect.stringMatching(/You need a deck first/));
   });
 
   it('says plainly when there are no reports yet', async () => {

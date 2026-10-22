@@ -10,7 +10,7 @@ const PAGES: Array<[string, string, string]> = [
   ['dashboard', '/#/company/cmp_openai_5sz16/dashboard/overview', 'text=Key figures'],
   // The screens the first three do not reach: every top-level screen and every dashboard tab, on the same seed deck.
   ['today', '/#/today', 'h1:has-text("Today")'],
-  ['saved cards', '/#/saved', 'h1:has-text("Saved Cards")'],
+  ['saved cards', '/#/saved', 'h1:has-text("Saved cards")'],
   ['reports', '/#/reports', 'h1:has-text("Reports")'],
   ['settings', '/#/settings', 'h1:has-text("Settings"), h2:has-text("Settings")'],
   ['settings: engine', '/#/settings/engine', 'text=Research engine'],

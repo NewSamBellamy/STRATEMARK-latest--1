@@ -25,10 +25,10 @@ export function SoftDataDisclaimer({ compact = false }: { compact?: boolean }) {
 /** Stronger, always-on disclaimer for Vice cards (reputational sensitivity, spec §4/§9). */
 export function ViceDisclaimer() {
   return (
-    <p className="flex items-start gap-1.5 text-[11px] leading-snug text-rose-700">
+    <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted">
       <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
       <span>
-        Every claim below is attributed to a cited source and is not asserted as unverified fact.
+        Each claim below is quoted from its source.
       </span>
     </p>
   );

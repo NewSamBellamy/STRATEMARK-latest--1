@@ -18,7 +18,8 @@ import { previewGeminiFetch } from './local-gemini-fetch';
 import { HOSTED_KEY } from '@/lib/hostedApi';
 import { IpcRepository, isElectron } from './ipc-repository';
 import { SentinelRepository } from './SentinelRepository';
-import { openBrowserResearchStore } from './browserResearchStore';
+import { DamagedResearchError, openBrowserResearchStore } from './browserResearchStore';
+import { DamagedResearchPanel } from './DamagedResearchPanel';
 import { QUOTA_PRESETS, effectiveQuotaPreset, useApiKey } from '@/lib/settings/apiKey';
 import { useEngineChoice } from '@/lib/settings/engine';
 import { currentWebSearch } from '@/lib/settings/searchKey';
@@ -152,11 +153,13 @@ export function RepositoryProvider({
   const [value, setValue] = useState<MarketIntelRepository | null>(repository ?? null);
   const [mode, setMode] = useState<RepositoryMode>(repository ? 'browser-live' : 'demo');
   const [error, setError] = useState<string | null>(null);
+  const [damaged, setDamaged] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     let live = true;
     setValue(repository ?? null);
     setError(null);
+    setDamaged(false);
     void (async () => {
       try {
         const store = !repository && !isElectron() && engine !== 'cloud' && apiKey
@@ -175,13 +178,17 @@ export function RepositoryProvider({
                 : apiKey ? 'browser-live' : 'demo');
         }
       } catch (cause) {
-        if (live) setError(cause instanceof Error ? cause.message : 'Research storage could not be opened.');
+        if (live) {
+          setDamaged(cause instanceof DamagedResearchError);
+          setError(cause instanceof Error ? cause.message : 'Research storage could not be opened.');
+        }
       }
     })();
     return () => {
       live = false;
     };
   }, [repository, apiKey, model, engine, quotaPreset, judgeModel, retry]);
+  if (error && damaged) return <DamagedResearchPanel message={error} onTryAgain={() => window.location.reload()} onStartedEmpty={() => setRetry((n) => n + 1)} />;
   if (error) return <div role="alert" className="m-8 space-y-3 text-content"><p>{error}</p><p>Your existing research has not been deleted.</p><button className="btn-ghost" onClick={() => setRetry((n) => n + 1)}>Retry</button></div>;
   if (!value) return <p role="status" className="m-8 text-muted">Opening your research…</p>;
   return (
