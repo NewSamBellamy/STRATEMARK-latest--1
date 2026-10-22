@@ -54,10 +54,19 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
 const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const MONTHS_SHORT = MONTHS_LONG.map((m) => m.slice(0, 3));
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const DATE_FMT = { format: (d: Date) => `${d.getUTCDate()} ${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
-const DATE_LONG_FMT = { format: (d: Date) => `${d.getUTCDate()} ${MONTHS_LONG[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
-const DATE_LONG_WEEKDAY_FMT = { format: (d: Date) => `${WEEKDAYS[d.getUTCDay()]} ${DATE_LONG_FMT.format(d)}` };
-const MONTH_FMT = { format: (d: Date) => `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}` };
+/**
+ * A moment at exactly 00:00:00.000 UTC is a calendar date ("2026-07-30" parses to one), not a clock
+ * reading: read it in UTC so the day never slips. Every other moment is a real instant and is read in
+ * the viewer's own time zone, so the date and the clock time always come from the same zone.
+ */
+const isCalendarDate = (d: Date) => d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
+const dayOf = (d: Date) => (isCalendarDate(d)
+  ? { day: d.getUTCDate(), month: d.getUTCMonth(), year: d.getUTCFullYear(), weekday: d.getUTCDay() }
+  : { day: d.getDate(), month: d.getMonth(), year: d.getFullYear(), weekday: d.getDay() });
+const DATE_FMT = { format: (d: Date) => { const p = dayOf(d); return `${p.day} ${MONTHS_SHORT[p.month]} ${p.year}`; } };
+const DATE_LONG_FMT = { format: (d: Date) => { const p = dayOf(d); return `${p.day} ${MONTHS_LONG[p.month]} ${p.year}`; } };
+const DATE_LONG_WEEKDAY_FMT = { format: (d: Date) => `${WEEKDAYS[dayOf(d).weekday]} ${DATE_LONG_FMT.format(d)}` };
+const MONTH_FMT = { format: (d: Date) => { const p = dayOf(d); return `${MONTHS_SHORT[p.month]} ${p.year}`; } };
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const TIME_FMT = { format: (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}` };
 
@@ -86,11 +95,11 @@ export function formatMonthYear(value: string | number | Date | null | undefined
   return d ? MONTH_FMT.format(d) : fallback;
 }
 
-/** Date plus clock time, local: "30 Jul 2026, 14:05". */
+/** Date plus clock time, local: "30 Jul 2026, 14:05". A calendar date with no time of day (a "2026-07-30") is shown without a clock time, never an invented one. */
 export function formatDateTime(value: string | number | Date | null | undefined, fallback = 'unknown'): string {
   const d = toDate(value);
   if (!d) return fallback;
-  return `${DATE_FMT.format(d)}, ${TIME_FMT.format(d)}`;
+  return isCalendarDate(d) ? DATE_FMT.format(d) : `${DATE_FMT.format(d)}, ${TIME_FMT.format(d)}`;
 }
 
 /** Clock time only, local: "14:05". */
