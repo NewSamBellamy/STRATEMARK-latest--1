@@ -146,7 +146,9 @@ export function scatterPoints(selfId: string, xType: MetricType, yType: MetricTy
   for (const p of peers) {
     const x = comparableKnown(p, xType);
     const y = comparableKnown(p, yType);
-    if (!x || !y) { left.push(shortCompanyName(p.name)); continue; }
+    // The axes run from zero: a negative figure would be drawn outside the plot, so it is named, not placed.
+    const placeable = (m: CompanyMetric) => Number.isFinite(m.value) && (m.value as number) >= 0;
+    if (!x || !y || !placeable(x) || !placeable(y)) { left.push(shortCompanyName(p.name)); continue; }
     points.push({
       companyId: p.companyId, name: p.name, x: x.value as number, y: y.value as number,
       xDisplay: figureDisplay(x), yDisplay: figureDisplay(y), isSelf: p.companyId === selfId,

@@ -91,6 +91,16 @@ describe('scatterPoints', () => {
     expect(left.sort()).toEqual(['Beta', 'Gamma']);
     expect(points.find((p) => p.companyId === 'd')!.estimate).toBe(true);
   });
+  it('does not place a negative figure on the zero-based axes; the company is named instead', () => {
+    const peers = [
+      peer('a', 'Acme', [metric('a', 'valuation', 50e9), metric('a', 'employees', 900)]),
+      peer('b', 'Beta', [metric('b', 'valuation', -2e9), metric('b', 'employees', 300)]),
+      peer('d', 'Delta', [metric('d', 'valuation', 10e9), metric('d', 'employees', 120)]),
+    ];
+    const { points, left } = scatterPoints('a', 'employees', 'valuation', peers);
+    expect(points.map((p) => p.companyId).sort()).toEqual(['a', 'd']);
+    expect(left).toEqual(['Beta']);
+  });
   it('offers only figures at least two companies have', () => {
     expect(comparableTypes(['valuation', 'employees', 'users'], PEERS)).toEqual(['valuation', 'employees']);
   });
