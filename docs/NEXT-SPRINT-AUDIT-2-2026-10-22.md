@@ -107,15 +107,17 @@ on an explicit Update or when inputs changed (data-hash), never silently; produc
 demand; image fixes are HTTP-only (no model calls); website audit = 1 page fetch + 1 grounded call + 1 structure call.
 Still open for the owner: hosted decks auto-refresh on open (audit SF-11) and the Deep Research comparison (about $1-3).
 
-## Status
+## Status (updated after the second build pass)
+
+Working rules from the owner: no parallel big agents (cost; several failed and delivered nothing); build directly in
+the main session; keep context small; the only permitted sub-agents are cheap Haiku ones, and this harness cannot pick a model.
 
 | Stream | State |
 |--------|-------|
-| WS-0 UI/prompt fixes | done, `6d3d21ac` on beta/night-tip |
-| WS-C chat compounds into dashboards | done, `581dec66` on beta/night-tip |
-| WS-A card frame options | done: side project `work/sm-card-frame-options` (open index.html); recommendation: logo-colour slab, foil bevel for high tier. Nothing in the app changed; waiting on the owner to choose |
-| WS-G Company Report | agent running, branch n2/report |
-| WS-B Products & Roadmap | agent running, branch n2/products |
-| WS-D image hit rate | agent running, branch n2/images |
-| WS-E/E2 PDF branding + website audit | agent running, branch n2/audit |
-| Integration | pending: merge n2/* into beta/night-tip, full pnpm check, push |
+| UI/ask fixes, chat compounds, card skins | done on beta/night-tip (skins: deck split, Saved embossed, Today acrylic) |
+| Company report | DONE and merged: engine (living-report*.ts), hero on Overview, full view (?report=1), PDF kind companyReport, share + Markdown, tests, a11y spec green. Needs a live key to judge AI quality |
+| Products & Roadmap | DONE and merged: report-style tab, product page, product news + YouTube videos (gated), tests, a11y green. Needs a live key for news/videos |
+| Website audit | engine committed on n2/audit (63ed406b evidence-based audit, 4cea9ecf verify fix); SiteAuditView UI NOT yet updated; not merged |
+| PDF branding for printScoped reports | not started (n2/audit worktree) |
+| Image hit rate | WIP on n2/images (e0d0e65f); harness baseline was empty 0/0; Worker fix unverified; not merged |
+| Integration | company report + products merged; remaining: audit UI, PDF branding, images; then full pnpm check, push |
