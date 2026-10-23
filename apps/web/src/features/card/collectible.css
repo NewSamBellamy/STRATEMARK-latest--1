@@ -597,6 +597,22 @@
   overflow: hidden;
   padding: 15px 10px 8px 0;
 }
+/* The summary and the drop-in panel scroll; the dashboard button and card
+   actions stay pinned so nothing a person needs to press is ever cut off. */
+.card-inspector__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: -10px;
+  padding: 0 10px 12px 0;
+}
+.card-inspector--report .card-inspector__scroll {
+  flex: none;
+  overflow: visible;
+  margin-right: 0;
+  padding: 0;
+}
 .card-inspector.card-inspector--report {
   width: calc(100vw - 32px);
   max-width: 1200px !important;
@@ -820,6 +836,11 @@
   .card-inspector__detail {
     padding: 4px;
     overflow: visible;
+  }
+  .card-inspector__scroll {
+    overflow: visible;
+    margin-right: 0;
+    padding: 0 0 12px;
   }
   /* The close button sits over the dark art panel on a phone: give it a surface so it can be seen. */
   .card-inspector > button:last-child {
@@ -1071,4 +1092,112 @@
   color: rgb(var(--c-content));
   font-size: 14px;
   line-height: 1.7;
+}
+
+/* ==========================================================================
+   Frame skins. One per place a card lives (see card-skin.ts). They read the
+   brand's two frame colours (--card-c1 / --card-c2) and fall back to graphite
+   and silver, so a card with no brand evidence still gets a finished frame.
+   ========================================================================== */
+.collectible[class*='collectible--skin-'] {
+  --c1: var(--card-c1, #5f6f69);
+  --c2: var(--card-c2, #aeb9b3);
+  --c1-hi: color-mix(in oklab, var(--c1) 58%, #fff);
+  --c1-lo: color-mix(in oklab, var(--c1) 58%, #000);
+  --c2-hi: color-mix(in oklab, var(--c2) 58%, #fff);
+  --c2-lo: color-mix(in oklab, var(--c2) 58%, #000);
+  --mid: color-mix(in oklab, var(--c1), var(--c2));
+  --edge: color-mix(in oklab, var(--c1) 45%, #000);
+}
+
+/* Dual-tone split: primary top and left, secondary bottom and right, an inlaid seam corner to corner. */
+.collectible--skin-split {
+  --seam: #fff7e4;
+  padding: 11px;
+  border-color: var(--edge);
+  background:
+    linear-gradient(180deg, #ffffff33, transparent 36%, #00000024),
+    linear-gradient(135deg,
+      var(--c1-hi) 0, var(--c1) calc(50% - 6px), var(--c1) calc(50% - 3.5px),
+      var(--c1-lo) calc(50% - 3.5px) calc(50% - 2.5px), var(--seam) calc(50% - 2.5px) calc(50% + 2.5px),
+      var(--c2-lo) calc(50% + 2.5px) calc(50% + 3.5px), var(--c2) calc(50% + 3.5px), var(--c2) calc(50% + 6px), var(--c2-lo) 100%);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    inset 0 1px 0 1px #ffffff66,
+    inset 0 -2px 0 #00000033,
+    0 2px 0 color-mix(in oklab, var(--c2) 55%, #000),
+    0 4px 4px #00000030,
+    0 18px 28px -16px #00000066;
+}
+.collectible--skin-split::before {
+  inset: 5px;
+  border: 1px solid #fff7e4b3;
+  border-radius: 15px;
+  box-shadow: 0 0 0 1px #00000024;
+}
+.collectible--skin-split .collectible__paper {
+  border-color: transparent;
+  box-shadow: 0 0 0 1px #00000066, 0 0 0 3px var(--seam), 0 0 0 4px #00000040, inset 0 1px 0 #ffffffc2;
+}
+
+/* Embossed rim: a raised satin bezel around a recessed face, with a stock edge and a contact shadow. */
+.collectible--skin-embossed {
+  padding: 10px;
+  border-color: var(--edge);
+  background:
+    radial-gradient(circle at 30% 18%, #ffffff6b, transparent 48%),
+    linear-gradient(152deg, var(--c1-hi) 0%, var(--c1) 36%, var(--mid) 62%, var(--c2) 100%);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    inset 0 1px 0 1px #ffffff8c,
+    inset 0 -3px 4px -2px #00000047,
+    0 2px 0 color-mix(in oklab, var(--c2) 62%, #fff),
+    0 4px 0 color-mix(in oklab, var(--c2) 52%, #000),
+    0 6px 0 color-mix(in oklab, var(--c2) 38%, #000),
+    0 9px 7px -2px #0000005c,
+    0 26px 30px -18px #00000085;
+}
+.collectible--skin-embossed::before {
+  inset: 4.5px;
+  border: 1px solid #00000042;
+  border-radius: 15px;
+  box-shadow: 0 1px 0 #ffffff66, inset 0 1px 0 #ffffff52;
+}
+.collectible--skin-embossed .collectible__paper {
+  border-color: transparent;
+  box-shadow: 0 -1px 0 #00000061, 0 1px 0 #ffffff8c, inset 0 5px 9px -3px #00000057, inset 0 1px 0 #ffffff80;
+}
+
+/* Acrylic slab: a clear case with a glassy reflection and a brand-colour label strip holding the edition line. */
+.collectible--skin-acrylic {
+  padding: 9px;
+  border-radius: 21px;
+  border-color: #8fa3b0;
+  background:
+    linear-gradient(115deg, transparent 28%, #ffffff8c 44%, transparent 58%),
+    linear-gradient(145deg, #f7fbfd, #dbe6ec 40%, #f2f7f9 62%, #c9d7df);
+  box-shadow:
+    inset 0 0 0 1px #ffffffe0,
+    inset 0 0 16px #5a7a8d40,
+    0 1px 0 #fff,
+    0 10px 16px -8px #1d3a4a66,
+    0 24px 32px -18px #1d3a4a73;
+}
+.collectible--skin-acrylic::before {
+  inset: 4px;
+  border: 1px solid #465c6a47;
+  border-radius: 17px;
+  box-shadow: 0 0 0 1px #ffffffd9, inset 0 0 10px #3c50602e;
+}
+.collectible--skin-acrylic .collectible__paper {
+  border-color: #fffdf2;
+  border-radius: 11px;
+  box-shadow: 0 0 0 1px #3c50604d, 0 2px 6px #1d3a4a2e, inset 0 1px 0 #ffffffc2;
+}
+.collectible--skin-acrylic .collectible__edition {
+  padding: 8px 12px;
+  color: #fff;
+  background: linear-gradient(90deg, var(--c1), var(--c2));
+  text-shadow: 0 1px 1px #0000008c;
+  box-shadow: inset 0 -1px 0 #0000002e, inset 0 1px 0 #ffffff59;
 }

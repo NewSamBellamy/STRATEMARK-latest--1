@@ -64,6 +64,8 @@ import {
   type VerifyCompanyMetricsResult,
   type BatchMetricVerification,
   type ProductBrief,
+  type CompanyReport,
+  type CompanyReportResult,
   type SignalBrief,
   type Report,
   type ShareSnapshot,
@@ -168,6 +170,7 @@ import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFo
 import { findHistoryVideo, isStoredHistoryVideo } from './history-video';
 import { productKey, researchProductBrief } from './product-brief';
 import { extrasHaveContent, extrasOnlyBrief, mergeExtras, researchProductExtras, staleExtras } from './product-research';
+import { readCompanyReport, writeCompanyReport, type ReportHost } from './living-report-store';
 import { researchSignalBrief as buildSignalBrief } from './signal-brief';
 import { readCompanyLink } from './link-reader';
 
@@ -362,6 +365,8 @@ export interface RepoSnapshot {
   productBriefs?: Record<string, Record<string, ProductBrief>>;
   /** The body behind each signal card, built when it is first opened (signal-brief.ts): cardId -> brief. Removed with its card. */
   signalBriefs?: Record<string, SignalBrief>;
+  /** The living company report, kept by data hash (living-report-store.ts): companyId -> report. Additive and optional; never part of a share export. */
+  companyReports?: Record<string, CompanyReport>;
   /** deckId -> signal kind -> ISO time until which that kind is not searched for again on its own (ensureSignalCards).
    * Written before a search starts (a reload or a second tab does not start another) and again when it ends. */
   signalRest?: Record<string, Partial<Record<'barrier' | 'insight' | 'vice' | 'culture', string>>>;
@@ -727,6 +732,7 @@ export class GeminiRepository implements MarketIntelRepository {
   /** Red-team score of the video chosen this session (memory only; a stored video from an earlier session has none). */
   private readonly historyVideoScores = new Map<string, number>();
   private readonly productBriefRuns = new Map<string, Promise<ProductBrief>>();
+  private readonly companyReportRuns = new Map<string, Promise<CompanyReportResult>>();
   private readonly signalBriefRuns = new Map<string, Promise<SignalBrief>>();
   /** Background tab warm-up (null when disabled). */
   private readonly warmup: DashboardWarmup | null = null;
@@ -1403,12 +1409,16 @@ export class GeminiRepository implements MarketIntelRepository {
       productBriefs: prev.productBriefs
         ? Object.fromEntries(Object.entries(prev.productBriefs).filter(([companyId]) => !orphaned.has(companyId)))
         : prev.productBriefs,
+      companyReports: prev.companyReports
+        ? Object.fromEntries(Object.entries(prev.companyReports).filter(([companyId]) => !orphaned.has(companyId)))
+        : prev.companyReports,
       signalBriefs: prev.signalBriefs
         ? Object.fromEntries(Object.entries(prev.signalBriefs).filter(([cardId]) => !removedCardIds.has(cardId)))
         : prev.signalBriefs,
     };
     if (prev.removedFromDeck === undefined) delete next.removedFromDeck;
     if (prev.productBriefs === undefined) delete next.productBriefs;
+    if (prev.companyReports === undefined) delete next.companyReports;
     if (prev.signalBriefs === undefined) delete next.signalBriefs;
     if (prev.signalRest === undefined) delete next.signalRest;
     for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt', 'staleRehuntAt'] as const) if (prev[key] === undefined) delete next[key];
@@ -3364,6 +3374,34 @@ export class GeminiRepository implements MarketIntelRepository {
 
   private pumpSignalBriefs(): void {
     while (this.signalBriefActive < GeminiRepository.SIGNAL_BRIEF_SLOTS && this.signalBriefWaiting.length > 0) this.signalBriefWaiting.shift()!.start();
+  }
+
+  /** The living company report (living-report-store.ts): read is free; write is one model call, on request. */
+  private reportHost(): ReportHost {
+    return {
+      company: (id) => this.snap.companies.find((c) => c.id === id) ?? null,
+      tab: (id, tab) => this.peekDashboardTab(id, tab),
+      metrics: (id) => this.getCompanyFacts(id),
+      evidence: (id) => (this.snap.researchEvidence ?? []).filter((e) => e.companyId === id),
+      kept: (id) => this.snap.companyReports?.[id],
+      keep: async (id, report) => { (this.snap.companyReports ??= {})[id] = report; await this.persist(); },
+      client: this.client,
+      now: this.clock,
+    };
+  }
+
+  peekCompanyReport(companyId: string): Promise<CompanyReportResult | null> {
+    return readCompanyReport(this.reportHost(), companyId);
+  }
+
+  getCompanyReport(companyId: string, options?: { force?: boolean; signal?: AbortSignal }): Promise<CompanyReportResult> {
+    const running = this.companyReportRuns.get(companyId);
+    if (running) return running;
+    const run = writeCompanyReport(this.reportHost(), companyId, options).finally(() => {
+      if (this.companyReportRuns.get(companyId) === run) this.companyReportRuns.delete(companyId);
+    });
+    this.companyReportRuns.set(companyId, run);
+    return run;
   }
 
   /** The stored brief only; never researches. */
@@ -7088,7 +7126,7 @@ ${references}`
       },
     );
     // Keep what the search itself attributed, so this research is not wasted. Never fails the answer.
-    const kept = keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g);
+    const kept = keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g, thread.scope.kind === 'datapoint' ? thread.scope.subject : null);
 
     const mentionedUrls = new Set((g.text.match(/https?:\/\/[^\s<>"'\]]+/g) ?? [])
       .flatMap(url => [url, url.replace(/[),.;:!?]+$/, '')]));
@@ -7108,10 +7146,17 @@ ${references}`
     await this.persist();
     // What the answer's search found now sits on each card it was about: tell open views so they re-read it.
     const keptCardIds = [...new Set(kept.flatMap((record) => (record.cardId ? [record.cardId] : [])))];
-    const deckId = thread.scope.deckId ?? this.snap.cards.find((card) => keptCardIds.includes(card.id))?.deckId;
+    // A person or product chat has no card in scope; name the companies so open dashboards re-read what was learned.
+    const keptCompanyIds = [...new Set(kept.flatMap((record) => (record.companyId ? [record.companyId] : [])))];
+    const deckId = thread.scope.deckId
+      ?? this.snap.cards.find((card) => keptCardIds.includes(card.id))?.deckId
+      ?? this.snap.cards.find((card) => card.companyId != null && keptCompanyIds.includes(card.companyId))?.deckId;
     const marketId = this.snap.decks.find((deck) => deck.id === deckId)?.marketId;
-    if (deckId && marketId && keptCardIds.length > 0) {
-      this.emit({ marketId, deckId, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: keptCardIds, prunedCardIds: [] });
+    if (deckId && marketId && (keptCardIds.length > 0 || keptCompanyIds.length > 0)) {
+      this.emit({
+        marketId, deckId, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: keptCardIds, prunedCardIds: [],
+        ...(keptCompanyIds.length > 0 ? { companyIds: keptCompanyIds } : {}),
+      });
     }
     return structuredClone(thread);
   }

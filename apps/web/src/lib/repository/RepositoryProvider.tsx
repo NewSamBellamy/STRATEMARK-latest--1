@@ -10,6 +10,7 @@
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { MarketIntelRepository } from '@mi/contracts';
+import { installDemoCompanyReport } from './demoCompanyReport';
 import { MockRepository, type SeedSnapshot } from '@mi/mocks';
 import { loadSampleSnapshot } from '@/sample/loadSampleSnapshot';
 import { GeminiRepository, assessFacts, type ResearchStore } from '@mi/research';
@@ -128,7 +129,7 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
     });
   }
   if (!sample) throw new Error('Demo mode needs the sample deck loaded first (loadSampleSnapshot).');
-  return new MockRepository({
+  return installDemoCompanyReport(new MockRepository({
     latencyMs: import.meta.env.MODE === 'test' ? 0 : 220,
     // Zero-state: a REAL researched deck (Frontier AI, live-baked with citations
     // and confidence tags intact) so first launch shows the finished product.
@@ -136,7 +137,7 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
     // The sample figures get the same read-time Source check as every other path (assessed afresh
     // against the real clock, so the 2026-07-30 captures read as old once they are).
     assessFacts: ({ company, metrics, rivalWebsites }) => assessFacts(metrics, { company, rivalWebsites, now: clock() }),
-  });
+  }), clock);
 }
 
 export function RepositoryProvider({

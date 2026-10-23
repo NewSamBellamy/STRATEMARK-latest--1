@@ -54,7 +54,10 @@ describe('ProductPage', () => {
     expect(await screen.findByText('Launch')).toBeInTheDocument();
     const hrefs = Array.from(document.querySelectorAll('a[href]')).map((a) => a.getAttribute('href') ?? '');
     expect(hrefs.filter((href) => !/^https?:\/\//.test(href)), JSON.stringify(hrefs)).toEqual([]);
-    expect(screen.getByRole('link', { name: 'Wire' })).toHaveAttribute('href', 'https://wire.example/a');
+    // The source can appear in the reception list and in the page's source list; every copy is the safe address.
+    const wire = screen.getAllByRole('link', { name: 'Wire' });
+    expect(wire.length).toBeGreaterThan(0);
+    for (const link of wire) expect(link).toHaveAttribute('href', 'https://wire.example/a');
     expect(screen.queryByRole('link', { name: /Official page/ })).not.toBeInTheDocument();
   });
 

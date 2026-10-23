@@ -11,6 +11,7 @@ import { ShareDialog } from '@/features/share/ShareDialog';
 import { useReadOnly } from '@/lib/readOnly';
 import { GameCard } from '@/features/card/GameCard';
 import { CardReader } from '@/features/card/CardReader';
+import type { CardSkin } from '@/features/card/card-skin';
 
 /**
  * A responsive grid of game cards.
@@ -30,6 +31,7 @@ export function CardGrid({
   selected,
   onToggle,
   onNextLane,
+  skin,
 }: {
   /** Offered in the reader at the last card; closes the reader and opens the next lane. */
   onNextLane?: () => void;
@@ -43,6 +45,8 @@ export function CardGrid({
   selectable?: boolean;
   selected?: Set<string>;
   onToggle?: (cardId: string) => void;
+  /** Frame skin for these cards; omitted means the deck default. */
+  skin?: CardSkin;
 }) {
   // Store the ID, derive the data: when a desk corrects a metric and the cards
   // refetch, the OPEN reader updates in place instead of showing a frozen
@@ -98,6 +102,7 @@ export function CardGrid({
               isSelected={selectable && (selected?.has(c.card.id) ?? false)}
               onOpenCard={openCard}
               onShareCard={setShareTarget}
+              skin={skin}
             />
           ))}
         </div>
@@ -118,6 +123,7 @@ export function CardGrid({
         }}
       />
       <CardReader
+        skin={skin}
         data={active}
         open={active !== null}
         onOpenChange={(o) => {
@@ -145,6 +151,7 @@ const CardGridItem = memo(function CardGridItem({
   isSelected,
   onOpenCard,
   onShareCard,
+  skin,
 }: {
   data: CardWithCompany;
   deckUserValues: number[];
@@ -153,6 +160,7 @@ const CardGridItem = memo(function CardGridItem({
   isSelected: boolean;
   onOpenCard: (cardId: string) => void;
   onShareCard: (card: CardWithCompany) => void;
+  skin?: CardSkin;
 }) {
   const cardId = data.card.id;
   const onOpen = useCallback(() => onOpenCard(cardId), [onOpenCard, cardId]);
@@ -174,6 +182,7 @@ const CardGridItem = memo(function CardGridItem({
         deckStatus={deckStatus}
         onOpen={onOpen}
         onShare={readOnly ? undefined : onShare}
+        skin={skin}
       />
       {/* Selection affordance lives OUTSIDE the card face: a chip in the
           wrapper, directly under the "Inspect card" row (never over it). */}

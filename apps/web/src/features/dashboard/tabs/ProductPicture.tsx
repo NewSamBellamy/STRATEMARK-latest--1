@@ -50,6 +50,8 @@ export function ProductPicture({ candidates, product, company, className, onlyPr
   if (onlyProduct && list.length === 0) return null;
   return (
     <div className={cn('relative overflow-hidden bg-surface-2', className)}>
+      {/* The plate sits under the picture so the band is never an empty box while a picture is still being looked up. */}
+      {!onlyProduct && <TypographicPlate product={product} company={company} />}
       <Chain list={list} at={0} product={product} company={company} />
     </div>
   );

@@ -43,6 +43,7 @@ import { splitFollowUps } from './followUps';
 import { AskOrb } from './AskOrb';
 import { CardThumbStrip } from './CardThumbs';
 import { resolveOrbScope } from './orbScope';
+import { digSeed, sanitizeSeed } from './askSeed';
 import { PanelHistory, sortThreadsNewest, type MemoryKey } from './PanelHistory';
 import logoMark from '@/assets/logo-mark.svg';
 import { useSupports } from '@/lib/repository/RepositoryProvider';
@@ -412,6 +413,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       setThread(t);
       void qc.invalidateQueries({ queryKey: ['researchThreads'] });
       void qc.invalidateQueries({ queryKey: ['cardMemory'] });
+      // What the answer's search found is saved against the company: let its open dashboard read it now.
+      const learnedFor = t.scope.companyId ?? forScope?.companyId;
+      if (learnedFor) void qc.invalidateQueries({ queryKey: ['dashboard', learnedFor] });
     } catch (e) {
       setError(chatErrorMessage(e instanceof Error ? e.message : String(e), hasKey));
       setFailed({ question, scope: forScope, threadId });
@@ -423,7 +427,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
     }
   };
 
-  const chat = (s: ResearchScope, opts?: ChatOptions) => {
+  const chat = (s: ResearchScope, rawOpts?: ChatOptions) => {
+    // Whatever a button built, no "null" or empty field ever reaches the question.
+    const opts = rawOpts && { ...rawOpts, seed: sanitizeSeed(rawOpts.seed) ?? undefined };
     // Reopening the same conversation keeps it: closing the panel is not
     // "start over". A seeded question or a different subject starts fresh.
     const same = scope && thread && thread.id !== 'oneshot' &&
@@ -504,9 +510,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       companyId: input.companyId,
       subject: input.topic,
     };
-    const seed = `${input.topic}${input.context ? ` — ${input.context}` : ''}${
-      input.companyName ? ` (for ${input.companyName})` : ''
-    }`;
+    const seed = digSeed(input) ?? undefined;
     if (conversational) chat(s, { seed });
     else {
       reset();
@@ -528,7 +532,7 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
             scope: s,
             title: input.topic,
             messages: [
-              { id: 'q', role: 'user', text: seed, citations: [], at: new Date().toISOString() },
+              { id: 'q', role: 'user', text: seed ?? input.topic, citations: [], at: new Date().toISOString() },
               { id: 'a', role: 'assistant', text: r.markdown, citations: r.citations, at: new Date().toISOString() },
             ],
             reportId: null,
