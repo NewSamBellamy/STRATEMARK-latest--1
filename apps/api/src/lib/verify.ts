@@ -58,13 +58,16 @@ interface Signature {
 
 /** Wording that block pages use. Matched against title + visible text. */
 const SIGNATURES: Signature[] = [
-  { kind: 'cloudflare', test: /just a moment|checking your browser|cf-browser-verification|cloudflare/i, label: 'Cloudflare interstitial' },
-  { kind: 'captcha', test: /are you (a )?human|verify you are|i'?m not a robot|hcaptcha|recaptcha|captcha/i, label: 'CAPTCHA challenge' },
-  { kind: 'forbidden', test: /access denied|forbidden|not authori[sz]ed|blocked|403/i, label: 'access denied page' },
+  { kind: 'cloudflare', test: /just a moment|checking your browser|cf-browser-verification|\bcloudflare\b/i, label: 'Cloudflare interstitial' },
+  { kind: 'captcha', test: /are you (a )?human|verify you are|i'?m not a robot|\bh?captcha\b|\brecaptcha\b/i, label: 'CAPTCHA challenge' },
+  { kind: 'forbidden', test: /access denied|\bforbidden\b|not authori[sz]ed|\bblocked\b|\b403\b/i, label: 'access denied page' },
   { kind: 'rate_limited', test: /too many requests|rate limit|slow down/i, label: 'rate-limit page' },
   { kind: 'login_wall', test: /sign in to continue|log in to continue|create an account to/i, label: 'login wall' },
-  { kind: 'error_page', test: /404|page not found|something went wrong|internal server error/i, label: 'error page' },
+  { kind: 'error_page', test: /\b404\b|page not found|something went wrong|internal server error/i, label: 'error page' },
 ];
+
+const SIGNATURE_BODY_WINDOW = 600;
+const SIGNATURE_MAX_BODY = 1500;
 
 /** Below this, a "page" has no content worth auditing. */
 const MIN_MEANINGFUL_TEXT = 120;
@@ -85,7 +88,10 @@ export function verifyBySignature(
     return { isRealPage: false, blockKind: 'error_page', confidence: 0.9, evidence: `The server answered ${status}.`, decidedBy: 'signature' };
   }
 
-  const haystack = `${receipt.title}\n${text}`;
+  // A block page is short; a genuine page that merely mentions "Cloudflare" or a
+  // "403" in its copy is long. Read the title and the opening of the body, and the
+  // whole body only when it is short enough to BE a challenge page.
+  const haystack = `${receipt.title}\n${text.length <= SIGNATURE_MAX_BODY ? text : text.slice(0, SIGNATURE_BODY_WINDOW)}`;
   for (const sig of SIGNATURES) {
     if (sig.test.test(haystack)) {
       return {
