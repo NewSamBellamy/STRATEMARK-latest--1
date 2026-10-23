@@ -64,6 +64,8 @@ import {
   type VerifyCompanyMetricsResult,
   type BatchMetricVerification,
   type ProductBrief,
+  type CompanyReport,
+  type CompanyReportResult,
   type SignalBrief,
   type Report,
   type ShareSnapshot,
@@ -170,6 +172,8 @@ import { DashboardWarmup, warmupConcurrency, warmupTabsInParallel, type CachedTa
 import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
 import { findHistoryVideo, isStoredHistoryVideo } from './history-video';
 import { productKey, researchProductBrief } from './product-brief';
+import { extrasHaveContent, extrasOnlyBrief, mergeExtras, researchProductExtras, staleExtras } from './product-research';
+import { readCompanyReport, writeCompanyReport, type ReportHost } from './living-report-store';
 import { researchSignalBrief as buildSignalBrief } from './signal-brief';
 import { readCompanyLink } from './link-reader';
 
@@ -364,6 +368,8 @@ export interface RepoSnapshot {
   productBriefs?: Record<string, Record<string, ProductBrief>>;
   /** The body behind each signal card, built when it is first opened (signal-brief.ts): cardId -> brief. Removed with its card. */
   signalBriefs?: Record<string, SignalBrief>;
+  /** The living company report, kept by data hash (living-report-store.ts): companyId -> report. Additive and optional; never part of a share export. */
+  companyReports?: Record<string, CompanyReport>;
   /** deckId -> signal kind -> ISO time until which that kind is not searched for again on its own (ensureSignalCards).
    * Written before a search starts (a reload or a second tab does not start another) and again when it ends. */
   signalRest?: Record<string, Partial<Record<'barrier' | 'insight' | 'vice' | 'culture', string>>>;
@@ -729,6 +735,7 @@ export class GeminiRepository implements MarketIntelRepository {
   /** Red-team score of the video chosen this session (memory only; a stored video from an earlier session has none). */
   private readonly historyVideoScores = new Map<string, number>();
   private readonly productBriefRuns = new Map<string, Promise<ProductBrief>>();
+  private readonly companyReportRuns = new Map<string, Promise<CompanyReportResult>>();
   private readonly signalBriefRuns = new Map<string, Promise<SignalBrief>>();
   /** Background tab warm-up (null when disabled). */
   private readonly warmup: DashboardWarmup | null = null;
@@ -1405,12 +1412,16 @@ export class GeminiRepository implements MarketIntelRepository {
       productBriefs: prev.productBriefs
         ? Object.fromEntries(Object.entries(prev.productBriefs).filter(([companyId]) => !orphaned.has(companyId)))
         : prev.productBriefs,
+      companyReports: prev.companyReports
+        ? Object.fromEntries(Object.entries(prev.companyReports).filter(([companyId]) => !orphaned.has(companyId)))
+        : prev.companyReports,
       signalBriefs: prev.signalBriefs
         ? Object.fromEntries(Object.entries(prev.signalBriefs).filter(([cardId]) => !removedCardIds.has(cardId)))
         : prev.signalBriefs,
     };
     if (prev.removedFromDeck === undefined) delete next.removedFromDeck;
     if (prev.productBriefs === undefined) delete next.productBriefs;
+    if (prev.companyReports === undefined) delete next.companyReports;
     if (prev.signalBriefs === undefined) delete next.signalBriefs;
     if (prev.signalRest === undefined) delete next.signalRest;
     for (const key of ['moves', 'follows', 'movesRefreshedAt', 'tabsRefreshedAt', 'staleRehuntAt'] as const) if (prev[key] === undefined) delete next[key];
@@ -3309,7 +3320,8 @@ export class GeminiRepository implements MarketIntelRepository {
 
   /**
    * "Research this product" (product-brief.ts): at most three grounded searches
-   * and one structure call, billed under label "product_brief". The brief is
+   * and one structure call, billed under label "product_brief", plus product news and videos (product-research.ts; free
+   * search lanes, at most one more structure call). The brief is
    * stored on `snap.productBriefs` and reused: a call without `force` returns
    * the stored brief and spends nothing. A failed or empty forced run keeps the
    * old brief. Runs for the same product are shared, never doubled.
@@ -3321,11 +3333,11 @@ export class GeminiRepository implements MarketIntelRepository {
     const flight = `${input.companyId}|${key}`;
     const running = this.productBriefRuns.get(flight);
     if (running) return running;
-    if (!input.force) {
-      const stored = this.storedProductBrief(input.companyId, key);
-      if (stored) return Promise.resolve(stored);
-    }
-    const run = this.runProductBrief(input.companyId, name, key).finally(() => {
+    // Stored and fresh: nothing is spent. Stored but its news/videos are missing or past their cadence: only those re-run.
+    const stored = input.force ? null : this.storedProductBrief(input.companyId, key);
+    const stale = stored ? staleExtras(stored, Date.now(), this.videoJson !== undefined) : null;
+    if (stored && !stale!.news && !stale!.videos) return Promise.resolve(stored);
+    const run = this.runProductBrief(input.companyId, name, key, stored ? { base: stored, parts: stale! } : null).finally(() => {
       if (this.productBriefRuns.get(flight) === run) this.productBriefRuns.delete(flight);
     });
     this.productBriefRuns.set(flight, run);
@@ -3367,6 +3379,34 @@ export class GeminiRepository implements MarketIntelRepository {
     while (this.signalBriefActive < GeminiRepository.SIGNAL_BRIEF_SLOTS && this.signalBriefWaiting.length > 0) this.signalBriefWaiting.shift()!.start();
   }
 
+  /** The living company report (living-report-store.ts): read is free; write is one model call, on request. */
+  private reportHost(): ReportHost {
+    return {
+      company: (id) => this.snap.companies.find((c) => c.id === id) ?? null,
+      tab: (id, tab) => this.peekDashboardTab(id, tab),
+      metrics: (id) => this.getCompanyFacts(id),
+      evidence: (id) => (this.snap.researchEvidence ?? []).filter((e) => e.companyId === id),
+      kept: (id) => this.snap.companyReports?.[id],
+      keep: async (id, report) => { (this.snap.companyReports ??= {})[id] = report; await this.persist(); },
+      client: this.client,
+      now: this.clock,
+    };
+  }
+
+  peekCompanyReport(companyId: string): Promise<CompanyReportResult | null> {
+    return readCompanyReport(this.reportHost(), companyId);
+  }
+
+  getCompanyReport(companyId: string, options?: { force?: boolean; signal?: AbortSignal }): Promise<CompanyReportResult> {
+    const running = this.companyReportRuns.get(companyId);
+    if (running) return running;
+    const run = writeCompanyReport(this.reportHost(), companyId, options).finally(() => {
+      if (this.companyReportRuns.get(companyId) === run) this.companyReportRuns.delete(companyId);
+    });
+    this.companyReportRuns.set(companyId, run);
+    return run;
+  }
+
   /** The stored brief only; never researches. */
   async peekProductBrief(companyId: string, productName: string): Promise<ProductBrief | null> {
     return this.storedProductBrief(companyId, productKey(productName ?? ''));
@@ -3378,13 +3418,38 @@ export class GeminiRepository implements MarketIntelRepository {
     return parsed?.success && parsed.data.companyId === companyId ? parsed.data : null;
   }
 
-  private async runProductBrief(companyId: string, productName: string, key: string): Promise<ProductBrief> {
+  private async runProductBrief(companyId: string, productName: string, key: string, refresh: { base: ProductBrief; parts: { news: boolean; videos: boolean } } | null = null): Promise<ProductBrief> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) throw new Error('Company not found for product research.');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PRODUCT_BRIEF_DEADLINE_MS);
     try {
-      const brief = await researchProductBrief({ company, productName, client: this.client, signal: controller.signal });
+      const siblings = ((this.snap.dashboards[companyId]?.products_roadmap?.content as { products?: Array<{ name?: unknown }> } | undefined)?.products ?? [])
+        .map((p) => p.name).filter((n): n is string => typeof n === 'string');
+      const extrasFor = (parts: { news: boolean; videos: boolean }) => researchProductExtras({
+        company, productName, siblings, client: this.client, fetchJson: this.videoJson, parts, signal: controller.signal,
+        newsLanes: [this.newsSearch?.() ?? null, this.webSearch?.() ?? null], videoLanes: [this.webSearch?.() ?? null],
+      });
+      let brief: ProductBrief;
+      if (refresh) {
+        brief = mergeExtras(refresh.base, await extrasFor(refresh.parts));
+      } else {
+        // The grounded brief, news and videos run together; a failed or empty extra never costs the brief, and an empty brief survives on news or videos.
+        const [grounded, extras] = await Promise.allSettled([
+          researchProductBrief({ company, productName, client: this.client, signal: controller.signal }),
+          extrasFor({ news: true, videos: this.videoJson !== undefined }),
+        ]);
+        const found = extras.status === 'fulfilled' ? extras.value : { citations: [] };
+        if (grounded.status === 'fulfilled') brief = mergeExtras(grounded.value, found);
+        else if (extrasHaveContent(found)) brief = extrasOnlyBrief({ companyId, productName, generatedAt: new Date().toISOString() }, found);
+        else throw grounded.reason;
+        // A forced run whose news or video search could not run keeps what was stored.
+        const prior = this.storedProductBrief(companyId, key);
+        if (prior) {
+          brief = { ...brief, ...(brief.news === undefined && prior.news ? { news: prior.news, newsCheckedAt: prior.newsCheckedAt } : {}),
+            ...(brief.videos === undefined && prior.videos ? { videos: prior.videos, videosCheckedAt: prior.videosCheckedAt } : {}) };
+        }
+      }
       // Re-read: the company may have been deleted while the search ran.
       if (!this.snap.companies.some((c) => c.id === companyId)) throw new Error('Company not found for product research.');
       const byCompany = (this.snap.productBriefs ??= {});
@@ -7029,7 +7094,7 @@ ${references}`
       },
     );
     // Keep what the search itself attributed, so this research is not wasted. Never fails the answer.
-    const kept = keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g);
+    const kept = keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g, thread.scope.kind === 'datapoint' ? thread.scope.subject : null);
 
     const mentionedUrls = new Set((g.text.match(/https?:\/\/[^\s<>"'\]]+/g) ?? [])
       .flatMap(url => [url, url.replace(/[),.;:!?]+$/, '')]));
@@ -7049,10 +7114,17 @@ ${references}`
     await this.persist();
     // What the answer's search found now sits on each card it was about: tell open views so they re-read it.
     const keptCardIds = [...new Set(kept.flatMap((record) => (record.cardId ? [record.cardId] : [])))];
-    const deckId = thread.scope.deckId ?? this.snap.cards.find((card) => keptCardIds.includes(card.id))?.deckId;
+    // A person or product chat has no card in scope; name the companies so open dashboards re-read what was learned.
+    const keptCompanyIds = [...new Set(kept.flatMap((record) => (record.companyId ? [record.companyId] : [])))];
+    const deckId = thread.scope.deckId
+      ?? this.snap.cards.find((card) => keptCardIds.includes(card.id))?.deckId
+      ?? this.snap.cards.find((card) => card.companyId != null && keptCompanyIds.includes(card.companyId))?.deckId;
     const marketId = this.snap.decks.find((deck) => deck.id === deckId)?.marketId;
-    if (deckId && marketId && keptCardIds.length > 0) {
-      this.emit({ marketId, deckId, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: keptCardIds, prunedCardIds: [] });
+    if (deckId && marketId && (keptCardIds.length > 0 || keptCompanyIds.length > 0)) {
+      this.emit({
+        marketId, deckId, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: keptCardIds, prunedCardIds: [],
+        ...(keptCompanyIds.length > 0 ? { companyIds: keptCompanyIds } : {}),
+      });
     }
     return structuredClone(thread);
   }

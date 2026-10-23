@@ -21,6 +21,7 @@ import type {
   ReportTopic,
 } from './enums';
 import type { MarketProfile } from './market-profile';
+import type { CompanyReportResult } from './company-report';
 import type {
   Card,
   Company,
@@ -1169,7 +1170,9 @@ export interface MarketIntelRepository {
   peekDashboardTab?<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null>;
   /**
    * Research one product for its own page: key metrics, overview, how it is
-   * received and its growth timeline, every figure sourced. Stores the result.
+   * received, its growth timeline, product-specific news and YouTube videos, every figure
+   * sourced. Stores the result. A stored brief is returned free; only its news/videos re-run
+   * when missing or stale (3 and 14 days). `force` re-runs everything.
    * Spends research credits, so only on request. OPTIONAL — live-research engines.
    */
   researchProductBrief?(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief>;
@@ -1186,6 +1189,19 @@ export interface MarketIntelRepository {
   listSourceActivity?(sinceId?: number): Promise<{ items: SourceActivity[]; lastId: number }>;
   /** A stored product brief, or null when none was researched. Never researches. OPTIONAL. */
   peekProductBrief?(companyId: string, productName: string): Promise<ProductBrief | null>;
+  /**
+   * The company's living report, read from what is stored: never researches and never calls a model. Returns the
+   * last written report with `stale` set when the research has moved on since, or, when none was written yet, a
+   * report assembled from stored text alone (status 'stored_data'). Null only for an unknown company. OPTIONAL.
+   */
+  peekCompanyReport?(companyId: string): Promise<CompanyReportResult | null>;
+  /**
+   * Write (or, with `force`, rewrite) the company's report: one structured model call over everything stored,
+   * checked by a deterministic gate (cited, no invented figures), then kept by data hash. A current report is
+   * returned without spending. With no model or on failure it falls back to a report built from stored text.
+   * Spends credits, so only on a person's request. OPTIONAL — engines holding research locally.
+   */
+  getCompanyReport?(companyId: string, options?: { force?: boolean; signal?: AbortSignal }): Promise<CompanyReportResult>;
   listReports(): Promise<Report[]>;
   getReport(id: string): Promise<Report | null>;
 

@@ -44,7 +44,7 @@ export default function SavedCardsPage() {
           />
         }
       >
-        {(data) => <CardGrid cards={data} deckUserValues={deckUserValues} />}
+        {(data) => <CardGrid cards={data} deckUserValues={deckUserValues} skin="embossed" />}
       </QueryBoundary>
     </div>
   );

@@ -160,6 +160,7 @@ export function keepFreshEvidence(
   thread: ResearchThread,
   companyIds: Iterable<string>,
   answer: { text: string; grounding?: ProviderGrounding; queries?: readonly string[] },
+  focus?: string | null,
 ): ResearchEvidence[] {
   try {
     const companies = [...new Set(companyIds)].map((id) => snap.companies.find((c) => c.id === id)).filter((c) => c != null);
@@ -169,7 +170,7 @@ export function keepFreshEvidence(
     };
     const records = chatEvidenceFromAnswer({
       threadId: thread.id, answerText: answer.text, grounding: answer.grounding,
-      companies, cardIdFor: cardFor, queries: answer.queries,
+      companies, cardIdFor: cardFor, queries: answer.queries, focus,
     });
     // A sentence already kept for that company is not kept again: copies would pass for separate passages.
     const key = (companyId: string | null | undefined, text: string) => `${companyId ?? ''}|${text.replace(/\s+/g, ' ').trim().toLowerCase()}`;

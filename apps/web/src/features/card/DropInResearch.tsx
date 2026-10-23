@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronDown, FileUp, Link2, Loader2 } from 'lucide-react';
 import { METRIC_TYPE_LABELS, type ResearchDocumentResult } from '@mi/contracts';
@@ -32,6 +32,12 @@ export function DropInResearch({ companyId, companyName }: { companyId: string; 
   const [text, setText] = useState('');
   const [applied, setApplied] = useState<Record<string, true>>({});
   const fileRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
+  const phaseName = phase.name;
+  // The reader's detail column scrolls; bring the panel, its Add button and any result fully into view.
+  useEffect(() => {
+    if (open || phaseName === 'done') rootRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }, [open, phaseName]);
   if (!supported) return null;
 
   const take = async (read: () => Promise<DroppedDocument>, label: string) => {
@@ -64,7 +70,7 @@ export function DropInResearch({ companyId, companyName }: { companyId: string; 
   const busy = phase.name === 'reading';
 
   return (
-    <section className="mt-4 rounded-lg border border-border bg-surface-muted/50" aria-label="Drop in research">
+    <section ref={rootRef} className="mt-4 rounded-lg border border-border bg-surface-muted/50" aria-label="Drop in research">
       <button
         type="button"
         aria-expanded={open}
