@@ -85,6 +85,9 @@ export function selectRepository(apiKey: string, model: string, engine?: string,
       // LLM as judge: verifications (metric verify, batch verify, red-team)
       // run on this model; blank keeps them on the research model.
       judgeModel: judgeModel || undefined,
+      // The tier of a key pasted into the app is not known, so pacing starts at the chosen rate and learns the key's real
+      // one: a paid key is no longer held to the free rate, and a free key backs off the moment Google says so.
+      adaptivePacing: quotaPreset === 'free',
       groundedRpm: quota.groundedRpm,
       structureRpm: quota.structureRpm,
       store,

@@ -71,3 +71,75 @@ describe('call pacing', () => {
     expect(granted).toEqual(['first', 'next']);
   });
 });
+
+describe('adaptive pacing', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** Keep the queue busy for a minute so the limiter is saturated, then report a success. */
+  async function saturatedMinute(limiter: ReturnType<typeof createRateLimiter>) {
+    for (let n = 0; n < 200; n += 1) void limiter.acquire();
+    await vi.advanceTimersByTimeAsync(60_100);
+    limiter.feedback('ok');
+  }
+
+  it('never moves without a ceiling', async () => {
+    const limiter = createRateLimiter(10);
+    await saturatedMinute(limiter);
+    limiter.feedback('rate-limited');
+    expect(limiter.currentLimit()).toBe(10);
+  });
+
+  it('rises toward its ceiling, a step per saturated minute, and stops there', async () => {
+    const limiter = createRateLimiter(10, { ceiling: 30 });
+    await saturatedMinute(limiter);
+    expect(limiter.currentLimit()).toBe(15);
+    await saturatedMinute(limiter);
+    expect(limiter.currentLimit()).toBe(23);
+    await saturatedMinute(limiter);
+    expect(limiter.currentLimit()).toBe(30);
+    await saturatedMinute(limiter);
+    expect(limiter.currentLimit()).toBe(30);
+  });
+
+  it('lets more calls through once it has risen', async () => {
+    const limiter = createRateLimiter(10, { ceiling: 60 });
+    const granted: number[] = [];
+    for (let n = 0; n < 300; n += 1) void limiter.acquire().then(() => granted.push(n));
+    await vi.advanceTimersByTimeAsync(0);
+    const firstMinute = granted.length;
+    expect(firstMinute).toBeLessThanOrEqual(10);
+    limiter.feedback('ok');
+    await vi.advanceTimersByTimeAsync(60_100);
+    limiter.feedback('ok');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(limiter.currentLimit()).toBeGreaterThan(10);
+    expect(granted.length - firstMinute).toBeGreaterThan(10);
+  });
+
+  it('does not rise when the queue is not using the cap: a quiet limiter has learned nothing', async () => {
+    const limiter = createRateLimiter(10, { ceiling: 60 });
+    void limiter.acquire();
+    await vi.advanceTimersByTimeAsync(61_000);
+    limiter.feedback('ok');
+    expect(limiter.currentLimit()).toBe(10);
+  });
+
+  it('backs off when a call is rate-limited, never below its base, and holds before trying again', async () => {
+    const limiter = createRateLimiter(10, { ceiling: 60 });
+    await saturatedMinute(limiter);
+    await saturatedMinute(limiter);
+    expect(limiter.currentLimit()).toBe(23);
+    limiter.feedback('rate-limited');
+    expect(limiter.currentLimit()).toBe(13);
+    limiter.feedback('rate-limited');
+    expect(limiter.currentLimit()).toBe(10);
+    // Held for five minutes: saturated minutes in that time do not raise it.
+    await saturatedMinute(limiter);
+    await saturatedMinute(limiter);
+    expect(limiter.currentLimit()).toBe(10);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    await saturatedMinute(limiter);
+    expect(limiter.currentLimit()).toBe(15);
+  });
+});

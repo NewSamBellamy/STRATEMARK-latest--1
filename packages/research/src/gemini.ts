@@ -157,6 +157,12 @@ export interface GeminiClientConfig {
    * call with `onText` streams its answer; otherwise `onText` is ignored and
    * the call behaves exactly as before. Off by default: relays must opt in. */
   streaming?: boolean;
+  /**
+   * Learn the key's real rate. The limiters start at `groundedRpm` / `structureRpm` and rise toward
+   * GROUNDED_RPM_CEILING / STRUCTURE_RPM_CEILING while calls succeed, then back off when Google rate-limits one.
+   * For a key whose tier is not known: a paid key stops being held to the free rate, and a free key is held there.
+   */
+  adaptivePacing?: boolean;
   /** Observability hook — fires once per outbound request (powers the usage meter). */
   onCall?: (info: { model: string; kind: 'ground' | 'structure' | 'judge' }) => void;
   /** Per-call latency decomposition (queue wait, dispatch, retry waits).
@@ -193,6 +199,9 @@ export const DEFAULT_REASONING_MODEL = 'gemini-3.1-pro-preview';
 export const DEFAULT_CHAT_MODEL = DEFAULT_REASONING_MODEL;
 /** Everyday conversation turns (label 'chat:quick') run on this fast line; hard questions keep the stronger one. */
 export const DEFAULT_QUICK_CHAT_MODEL = 'gemini-flash-latest';
+/** The most an adaptive limiter will rise to: the paid-tier pacing the app already offers. */
+export const GROUNDED_RPM_CEILING = 60;
+export const STRUCTURE_RPM_CEILING = 120;
 export const DEFAULT_STRUCTURE_MODEL = 'gemini-3.5-flash-lite';
 
 // Vertex AI model IDs verified in us-central1.
@@ -344,7 +353,10 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
       model === chatModel ? groundedRpm : 0,
       model === quickChatModel ? groundedRpm : 0,
     ].filter((rpm) => rpm > 0);
-    const limiter = rpms.length ? createRateLimiter(Math.min(...rpms)) : null;
+    const structureOnly = model === structureModel && model !== groundedModel && model !== judgeModel && model !== chatModel && model !== quickChatModel;
+    const limiter = rpms.length
+      ? createRateLimiter(Math.min(...rpms), config.adaptivePacing ? { ceiling: structureOnly ? STRUCTURE_RPM_CEILING : GROUNDED_RPM_CEILING } : {})
+      : null;
     limiters.set(model, limiter);
     return limiter;
   };
@@ -417,6 +429,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
           signal?.removeEventListener('abort', onAbortStopTimer);
         }
         throwIfAborted(signal);
+        if (res.status === 429) limiter?.feedback('rate-limited');
         if (!res.ok) {
           // Drain the body inside the same deadline, but never echo its content.
           const body = await res.text().catch(() => '');
@@ -446,6 +459,7 @@ export function createGeminiClient(config: GeminiClientConfig): LlmClient {
         }
         const parsed = stream ? await readGeminiSse(res, onText!, signal) : await res.json() as GeminiResponse;
         throwIfAborted(signal);
+        limiter?.feedback('ok');
         return parsed;
       },
       {

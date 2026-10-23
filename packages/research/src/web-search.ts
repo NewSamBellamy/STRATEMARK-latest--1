@@ -222,11 +222,18 @@ export function parseSearchRelayRequest(body: unknown): SearchRelayRequest | nul
 
 export type WebSearchFn = (query: string, options?: SearchOptions) => Promise<WebSearchResult[]>;
 
+/** How long a relay that said "not configured" is left alone. */
+export const RELAY_NOT_CONFIGURED_MS = 10 * 60 * 1000;
+
 /** Page side: ask a relay to search. `key` omitted = the relay's hosted key. */
 export function relayWebSearch(options: { endpoint: string; provider: SearchProvider; key?: string | null;
   headers?: Record<string, string>; fetchImpl?: typeof fetch; timeoutMs?: number }): WebSearchFn {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+  // A relay with no search key behind it answers "not configured" to every query. Hunts ask hundreds of times
+  // per deck, so once told, stop asking for a while: the answer is the same and each ask costs a round trip.
+  let notConfigured: { until: number; message: string } | null = null;
   return async (query, searchOptions = {}) => {
+    if (notConfigured && Date.now() < notConfigured.until) throw new WebSearchError(notConfigured.message, 503);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
     try {
@@ -237,8 +244,10 @@ export function relayWebSearch(options: { endpoint: string; provider: SearchProv
       });
       const body = await response.json().catch(() => null) as { results?: unknown; error?: unknown } | null;
       if (!response.ok) {
-        throw new WebSearchError(typeof body?.error === 'string' ? body.error.slice(0, 200)
-          : searchFailureMessage(options.provider, response.status), response.status);
+        const message = typeof body?.error === 'string' ? body.error.slice(0, 200)
+          : searchFailureMessage(options.provider, response.status);
+        if (response.status === 503 && /not configured/i.test(message)) notConfigured = { until: Date.now() + RELAY_NOT_CONFIGURED_MS, message };
+        throw new WebSearchError(message, response.status);
       }
       return Array.isArray(body?.results) ? (body.results as WebSearchResult[]).filter((r) =>
         typeof r?.url === 'string' && r.url.startsWith('https://')).slice(0, MAX_RESULTS) : [];

@@ -9,6 +9,7 @@ import {
   parseSearchResponse,
   publishedAtMs,
   relayWebSearch,
+  RELAY_NOT_CONFIGURED_MS,
   relevantSearchResults,
   runProviderSearch,
   SEARCH_PROVIDERS,
@@ -125,6 +126,33 @@ describe('relayWebSearch', () => {
     const search = relayWebSearch({ endpoint: 'https://w/v1/search', provider: 'serper', fetchImpl: fetchImpl as unknown as typeof fetch });
     await expect(search('q q')).rejects.toThrow('Daily search budget reached.');
     expect(fetchImpl.mock.calls[0]![1]!.headers).not.toHaveProperty('X-Search-Key');
+  });
+});
+
+describe('relayWebSearch when the relay has no search key', () => {
+  it('stops asking after "not configured", then tries again once the wait is over', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => jsonResponse({ error: 'Hosted search is not configured.' }, 503));
+      const search = relayWebSearch({ endpoint: 'https://w/v1/search', provider: 'serper', fetchImpl: fetchImpl as unknown as typeof fetch });
+      await expect(search('first query')).rejects.toThrow('not configured');
+      await expect(search('second query')).rejects.toThrow('not configured');
+      await expect(search('third query')).rejects.toMatchObject({ status: 503 });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(Date.now() + RELAY_NOT_CONFIGURED_MS + 1000);
+      await expect(search('later query')).rejects.toThrow('not configured');
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps asking after any other failure: a busy or over-budget relay may recover', async () => {
+    const fetchImpl = vi.fn((_url: string, _init?: RequestInit) => jsonResponse({ error: 'Free search has reached today’s budget.' }, 503));
+    const search = relayWebSearch({ endpoint: 'https://w/v1/search', provider: 'serper', fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(search('one')).rejects.toThrow('budget');
+    await expect(search('two')).rejects.toThrow('budget');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -181,7 +181,19 @@ export function extractJson(text: string): unknown {
 export interface RateLimiter {
   /** `urgent`: a call the user is waiting on, served ahead of queued bulk work. */
   acquire(signal?: AbortSignal, priority?: CallPriority): Promise<void>;
+  /**
+   * How a call this limiter admitted turned out. A limiter built with a `ceiling` learns the key's real rate from it:
+   * it speeds up while calls succeed and backs off when one is rate-limited. Without a ceiling this does nothing.
+   */
+  feedback(outcome: 'ok' | 'rate-limited'): void;
+  /** The cap in force right now (it moves only for a limiter with a ceiling). */
+  currentLimit(): number;
 }
+
+/** A limiter with a ceiling starts at its base rate and may rise by this factor each full minute it is saturated and unthrottled. */
+const RAMP_FACTOR = 1.5;
+/** After a rate limit the limiter stays at the lowered rate this long before it tries to rise again. */
+const RAMP_HOLD_MS = 5 * 60_000;
 
 /**
  * Pacing priority. A deck's bulk work (hydration, face hunts, dashboard
@@ -191,14 +203,17 @@ export interface RateLimiter {
  */
 export type CallPriority = 'normal' | 'urgent';
 
-export function createRateLimiter(requestsPerMinute: number): RateLimiter {
+export function createRateLimiter(requestsPerMinute: number, options: { ceiling?: number } = {}): RateLimiter {
   const windowMs = 60_000;
-  const limit = Math.max(1, requestsPerMinute);
+  const base = Math.max(1, requestsPerMinute);
+  const ceiling = Math.max(base, options.ceiling ?? base);
+  let limit = base;
+  let holdUntil = 0;
+  let lastRampAt = Date.now();
   // Headroom only an urgent call may use. Without it a burst of bulk calls fills the whole window and the
   // person's question (a compare) waits for the oldest bulk call to leave it: up to a full minute, however
   // urgent it is. Bulk work gives up about a tenth of the cap; the cap itself is never exceeded.
-  const reserve = limit >= 4 ? Math.max(1, Math.round(limit * 0.1)) : 0;
-  const bulkLimit = limit - reserve;
+  const reserveOf = (cap: number) => (cap >= 4 ? Math.max(1, Math.round(cap * 0.1)) : 0);
   const sent: number[] = [];
   // One queue, served in order (urgent first), so N callers never all wake
   // and burst through together.
@@ -212,6 +227,7 @@ export function createRateLimiter(requestsPerMinute: number): RateLimiter {
     for (;;) {
       const urgent = waiting.findIndex((w) => w.urgent);
       // An urgent call may use the whole cap; bulk calls stop short of the reserve.
+      const bulkLimit = limit - reserveOf(limit);
       const at = urgent >= 0 ? (sent.length < limit ? urgent : -1) : (waiting.length && sent.length < bulkLimit ? 0 : -1);
       if (at < 0) break;
       const [next] = waiting.splice(at, 1);
@@ -223,6 +239,25 @@ export function createRateLimiter(requestsPerMinute: number): RateLimiter {
   }
 
   return {
+    currentLimit: () => limit,
+    feedback(outcome) {
+      if (ceiling <= base) return;
+      const now = Date.now();
+      if (outcome === 'rate-limited') {
+        limit = Math.max(base, Math.floor(limit * 0.6));
+        holdUntil = now + RAMP_HOLD_MS;
+        lastRampAt = now;
+        return;
+      }
+      // Rise only after a full minute, outside a hold, and only when the queue is really using the cap:
+      // a quiet limiter has learned nothing about what the key allows.
+      const saturated = waiting.length > 0 || sent.length >= limit * 0.8;
+      if (limit < ceiling && now >= holdUntil && now - lastRampAt >= windowMs && saturated) {
+        limit = Math.min(ceiling, Math.ceil(limit * RAMP_FACTOR));
+        lastRampAt = now;
+        pump();
+      }
+    },
     acquire(signal, priority = 'normal') {
       throwIfAborted(signal);
       return new Promise<void>((resolve, reject) => {
