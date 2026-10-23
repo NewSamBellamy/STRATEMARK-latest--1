@@ -16,6 +16,7 @@ import { FollowTodayButton } from '@/features/today/FollowTodayButton';
 import { useDeepDive } from '@/features/deepdive/DeepDive';
 import { CardStage } from './CardStage';
 import { DropInResearch } from './DropInResearch';
+import { cardAskSeed } from '@/features/deepdive/askSeed';
 import { SaveCardButton } from './GameCard';
 import { SignalFinding } from './SignalFinding';
 import { SignalBriefBody, sourcedPoints, useSignalBrief } from './SignalBriefView';
@@ -133,6 +134,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
       <div className="card-inspector__layout">
         <CardStage data={data} view={view} />
         <div className="card-inspector__detail">
+          <div className="card-inspector__scroll">
           <div className="flex items-center justify-between gap-3 pr-8">
             <span className="text-[10px] font-semibold uppercase tracking-[.16em] text-muted">From your research deck</span>
             <span className="text-[11px] text-muted">{position && total ? `${position} of ${total}` : view.type}</span>
@@ -165,6 +167,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           </section>}
 
           {company && !view.signal && !readOnly && <DropInResearch companyId={company.id} companyName={company.name} />}
+          </div>
 
           {/* Route departure unmounts the reader. Closing it separately also
               navigates the deck query and competes with this destination. */}
@@ -173,8 +176,9 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
           </Link> : !readOnly && <button type="button" className="card-inspector__cta" onClick={() => {
             onOpenChange(false);
             // With history the button resumes the latest conversation (no question); with none it starts one.
-            chat({ kind: 'cards', deckId: card.deckId, cardIds: [card.id], subject: card.title },
-              chatCount > 0 ? undefined : { seed: `Dig into "${card.title}" — what's the full picture?` });
+            // view.title is never null (a company card has no title of its own, so card.title would read "null").
+            chat({ kind: 'cards', deckId: card.deckId, cardIds: [card.id], subject: view.title },
+              chatCount > 0 ? undefined : { seed: cardAskSeed(view.title) ?? undefined });
           }}>{chatCount > 0 ? <span className="flex flex-col items-start text-left">
               <span>Continue conversation ({chatCount})</span>
               <span className="text-[11px] font-normal opacity-80">{memoryLine}</span>
@@ -208,7 +212,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
             {(onPrevious || onNext || onNextLane) && <div className="flex items-center gap-1">
               <button type="button" className="card-control" aria-label="Previous card" onClick={onPrevious} disabled={!onPrevious}><ArrowLeft size={15} /></button>
               {!onNext && onNextLane
-                ? <button type="button" className="card-control w-auto gap-1 px-2 text-[11px]" aria-label="Next lane" onClick={onNextLane}>Next lane <ArrowRight size={15} /></button>
+                ? <button type="button" className="card-control w-auto shrink-0 grid-flow-col gap-1 whitespace-nowrap px-3 text-[11px]" aria-label="Next lane" onClick={onNextLane}>Next lane <ArrowRight size={15} /></button>
                 : <button type="button" className="card-control" aria-label="Next card" onClick={onNext} disabled={!onNext}><ArrowRight size={15} /></button>}
             </div>}
           </div>

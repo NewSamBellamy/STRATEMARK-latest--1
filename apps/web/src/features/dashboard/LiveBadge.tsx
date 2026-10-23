@@ -13,7 +13,8 @@ export function LiveBadge({ lastRefreshedAt, now = Date.now() }: { lastRefreshed
   const validDate = !!lastRefreshedAt && !Number.isNaN(Date.parse(lastRefreshedAt));
   return (
     <span
-      className={stale ? 'chip border-border bg-surface-2 text-muted' : 'chip border-primary/40 bg-primary/10 text-primary-ink'}
+      // Roomy enough that the border never hugs the text, and as tall as the Refresh button beside it.
+      className={`chip min-h-8 px-3.5 py-1.5 ${stale ? 'border-border bg-surface-2 text-muted' : 'border-primary/40 bg-primary/10 text-primary-ink'}`}
       title={stale && validDate ? formatDateTime(lastRefreshedAt) : stale ? undefined : 'Refreshed by the live research pipeline.'}
     >
       <Radio className="h-3.5 w-3.5" />

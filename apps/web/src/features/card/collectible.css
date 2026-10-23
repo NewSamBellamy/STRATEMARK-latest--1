@@ -597,6 +597,22 @@
   overflow: hidden;
   padding: 15px 10px 8px 0;
 }
+/* The summary and the drop-in panel scroll; the dashboard button and card
+   actions stay pinned so nothing a person needs to press is ever cut off. */
+.card-inspector__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: -10px;
+  padding: 0 10px 12px 0;
+}
+.card-inspector--report .card-inspector__scroll {
+  flex: none;
+  overflow: visible;
+  margin-right: 0;
+  padding: 0;
+}
 .card-inspector.card-inspector--report {
   width: calc(100vw - 32px);
   max-width: 1200px !important;
@@ -820,6 +836,11 @@
   .card-inspector__detail {
     padding: 4px;
     overflow: visible;
+  }
+  .card-inspector__scroll {
+    overflow: visible;
+    margin-right: 0;
+    padding: 0 0 12px;
   }
   /* The close button sits over the dark art panel on a phone: give it a surface so it can be seen. */
   .card-inspector > button:last-child {
