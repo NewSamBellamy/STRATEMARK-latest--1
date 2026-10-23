@@ -443,7 +443,11 @@ export type SiteAuditArea =
   | 'cta'
   | 'trust'
   | 'design'
-  | 'seo';
+  | 'seo'
+  // Added with the evidence-based rubric; stored reports from before never carry them.
+  | 'friction'
+  | 'mobile_performance'
+  | 'accessibility';
 
 export interface SiteAuditScore {
   area: SiteAuditArea;
@@ -457,6 +461,57 @@ export interface SiteAuditFinding {
   detail: string;
   /** For gaps: what the miss is costing (conversions, trust, traffic). */
   impact?: string | null;
+  /** The verbatim text from the page (or search context) this finding rests on. Absent on older reports. */
+  quote?: string | null;
+  /** Where the quote was found; 'search' means grounded web context, not the page itself. */
+  evidenceSource?: 'page' | 'search' | null;
+  /** True when the evidence supplied did not show enough to judge; there is no quote by design. */
+  notObservable?: boolean;
+}
+
+/** One rubric category: weighted, scored 1–10 only when the evidence allowed it. */
+export interface SiteAuditCriterion {
+  area: SiteAuditArea;
+  label: string;
+  /** Share of the overall score, in percent. Weights of all criteria sum to 100. */
+  weight: number;
+  /** 1–10, or null when nothing supplied could show this (never imputed). */
+  score: number | null;
+  observable: boolean;
+  /** 'checks' = computed from the page HTML by fixed rules; 'model' = judged against the rubric anchors. */
+  scoredBy: 'checks' | 'model';
+  verdict: string;
+  findings: SiteAuditFinding[];
+}
+
+/** A deterministic, repeatable check computed from the page's HTML. */
+export interface SiteAuditCheck {
+  id: string;
+  area: SiteAuditArea;
+  label: string;
+  /** 'unknown' when the page could not be read or the fact is not visible in source HTML. */
+  status: 'pass' | 'fail' | 'unknown';
+  /** What was measured, quoting the page where there is something to quote. */
+  detail: string;
+}
+
+export interface SiteAuditFix {
+  title: string;
+  detail: string;
+  impact: 'high' | 'medium' | 'low';
+  effort: 'high' | 'medium' | 'low';
+  area?: SiteAuditArea | null;
+  quote?: string | null;
+}
+
+export interface SiteAuditConfidence {
+  level: 'high' | 'medium' | 'low';
+  /** Share (0–1) of the rubric weight that could be observed and scored. */
+  coverage: number;
+  /** Whether the page's own HTML was read. False = grounded web context only. */
+  pageRead: boolean;
+  /** Plain-words reason, shown as the banner. */
+  note: string;
 }
 
 export interface SiteAuditContent {
@@ -469,6 +524,24 @@ export interface SiteAuditContent {
   missing: SiteAuditFinding[];
   designStyle: { summary: string; notes: string[] };
   testFirst: SiteAuditFinding[];
+  // Evidence-based audit. All optional: older stored reports lack them and render the original way.
+  version?: 2;
+  /** Weighted rubric categories with per-criterion findings and quotes. */
+  criteria?: SiteAuditCriterion[];
+  /** Fixed-rule pass/fail checks computed from the page HTML. */
+  checklist?: SiteAuditCheck[];
+  /** Prioritised fixes with impact/effort. */
+  fixes?: SiteAuditFix[];
+  confidence?: SiteAuditConfidence;
+  /** How the page read went; drives the banner when it did not. */
+  page?: {
+    status: 'read' | 'js_only' | 'unavailable';
+    finalUrl?: string | null;
+    reason?: string | null;
+    words?: number;
+  };
+  /** Model findings removed because their quote was not in the supplied evidence. */
+  droppedFindings?: number;
 }
 
 export interface SiteAuditInput {

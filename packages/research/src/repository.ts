@@ -130,7 +130,10 @@ import { cardIdsForThread, cardMemory, isReadableThread, reportStamp, requestThr
 import type { Ownership } from '@mi/contracts';
 import { figureAsOf } from '@mi/contracts';
 import { findOwnership, metricOwnershipEvidence, preferOwnership, receiptOwnershipEvidence } from './ownership';
-import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditOutSchema, verifyMetricOutSchema } from './schemas';
+import { briefingOutSchema, batchVerifyOutSchema, factCheckOutSchema, huntMetricsOutSchema, marketBatchOutSchema, redTeamOutSchema, siteAuditV2OutSchema, verifyMetricOutSchema } from './schemas';
+import { classifyAuditPage, type AuditPageRead } from './site-audit-evidence';
+import { buildAuditPrompt, buildGroundPrompt, runChecklist } from './site-audit-rubric';
+import { composeSiteAudit, siteAuditMarkdown } from './site-audit-gate';
 import type { CallMetricsAggregate, LlmClient, ProviderGrounding, ResearchCoverage, RunResearchOptions } from './types';
 import { applyMilestone, usageSince, type DeckRun, type DeckRunMilestone } from './deck-run';
 import type { ResearchNoteEntry, ReportedMetricSupport, ResearchDocumentInput, ResearchDocumentResult } from '@mi/contracts';
@@ -6662,12 +6665,18 @@ export class GeminiRepository implements MarketIntelRepository {
   // Site Audit ----------------------------------------------------------------
 
   /**
-   * The landing-page teardown. One grounded pass reads how the site presents
-   * itself (its copy, offers, coverage, reviews) through a senior CRO/UX
-   * auditor's framework — the canon: five-second value-prop clarity, message
-   * match, call-to-action strength, trust & social proof, visual hierarchy,
-   * findability. Structured for the visual report; every claim keeps its
-   * sources and junk domains are filtered, the same as everywhere else.
+   * The landing-page teardown, judged on evidence. Three steps:
+   *  1. READ the page's own HTML (the asset-lane reader) and extract facts:
+   *     headline, calls to action, forms, trust signals, head/meta, weight.
+   *     A page that cannot be read (blocked, client-rendered, no reader) is
+   *     reported as such and the audit continues on web context alone, with
+   *     lower confidence, never as a clean score.
+   *  2. GROUND one search pass for what lives outside the page (how customers
+   *     and press describe it, claims, reviews).
+   *  3. JUDGE against the weighted rubric in site-audit-rubric.ts. The model
+   *     must quote the evidence for every finding; site-audit-gate.ts drops
+   *     what it cannot find there and computes the weighted score.
+   * Every claim keeps its sources and junk domains are filtered.
    */
   async auditSite(input: SiteAuditInput): Promise<Report> {
     const url = /^https?:\/\//i.test(input.url) ? input.url.trim() : `https://${input.url.trim()}`;
@@ -6679,89 +6688,48 @@ export class GeminiRepository implements MarketIntelRepository {
     }
     const name = input.siteName?.trim() || host;
 
-    const g = await this.client.ground(
-      [
-        `You are a senior conversion-rate-optimization and UX auditor — the kind agencies bill five figures for. Audit the landing page at ${url} ("${name}").`,
-        `Use Google Search to learn what the page actually says and shows (its headline, offers, pricing, copy), how the company presents itself, and how the site is discussed, reviewed, and found.`,
-        `Score SIX areas from 1-10, each with a one-sentence verdict grounded in evidence:`,
-        `1. VALUE PROPOSITION — would a first-time visitor pass the five-second test? Is the promise concrete and differentiated?`,
-        `2. MESSAGING & COPY — specificity over buzzwords; does the copy match how customers and coverage describe the product?`,
-        `3. CALLS TO ACTION — is the next step obvious, low-friction, and worth taking?`,
-        `4. TRUST & SOCIAL PROOF — logos, reviews, numbers, security signals; is the claim load carried by evidence?`,
-        `5. DESIGN & VISUAL HIERARCHY — does the visual language guide the eye and match the brand's price point?`,
-        `6. FINDABILITY / SEO FUNDAMENTALS — how the site surfaces in search, what it ranks for, obvious gaps.`,
-        `Then report:`,
-        `WHAT'S WORKING — the specific elements doing their job (quote real headlines/claims when sources show them).`,
-        `WHAT'S MISSING — the gaps costing conversions, trust, or traffic; for EACH gap name its concrete impact.`,
-        `DESIGN STYLE — describe the visual language plainly: palette, typography vibe, density, what era/register it reads as.`,
-        `TEST FIRST — the 3-5 highest-leverage experiments (hypothesis + why it should move the number).`,
-        `Honesty rules: never invent page elements you cannot support from search evidence; when you can't verify something, say so instead of guessing.`,
-      ].join('\n'),
-      { system: GROUNDED_SYSTEM },
-    );
+    // 1. The page itself. Fail-soft: a read that fails is a finding, not an error.
+    const read = this.assetSourceReader
+      ? await this.assetSourceReader(url).then(
+          (receipt) => classifyAuditPage(receipt, url),
+          (): AuditPageRead => ({ status: 'unavailable', evidence: null, reason: 'The page reader failed.' }),
+        )
+      : ({ status: 'unavailable', evidence: null, reason: 'No page reader is connected on this device.' } as AuditPageRead);
+    const evidence = read.evidence;
+    const checklist = runChecklist(evidence, read.reason ?? undefined);
 
+    // 2. Web context. If it fails but the page was read, the audit goes on without it.
+    let groundedText = '';
+    let groundedCitations: Citation[] = [];
+    let groundedOk = true;
+    try {
+      const g = await this.client.ground(buildGroundPrompt(url, name, read.status === 'read'), { system: GROUNDED_SYSTEM, label: 'site_audit' });
+      groundedText = g.text;
+      groundedCitations = g.citations;
+    } catch (error) {
+      if (!evidence) throw error;
+      groundedOk = false;
+    }
+
+    // 3. The judgement, then the deterministic gate.
     const out = await this.client.structure(
-      [
-        `Extract the audit notes into JSON: { "scores": [{ "area": "value_proposition"|"messaging"|"cta"|"trust"|"design"|"seo", "score": 1-10, "verdict": string }], "working": [{ "title", "detail" }], "missing": [{ "title", "detail", "impact": string|null }], "designSummary": string, "designNotes": string[], "testFirst": [{ "title", "detail" }] }.`,
-        `Copy scores and claims EXACTLY as the notes state them. Keep titles tight (a few words) and details to 1-3 sentences.`,
-        ``,
-        `NOTES:`,
-        g.text,
-      ].join('\n'),
-      siteAuditOutSchema,
-      { system: STRUCTURE_SYSTEM },
+      buildAuditPrompt({ url, siteName: name, evidence, checklist, groundedText, pageNote: read.reason }),
+      siteAuditV2OutSchema,
+      { system: STRUCTURE_SYSTEM, label: 'site_audit' },
     );
+    const audit: SiteAuditContent = composeSiteAudit({
+      url, siteName: name, evidence, pageStatus: read.status, pageReason: read.reason,
+      finalUrl: evidence && evidence.url !== url ? evidence.url : null, checklist, groundedText, groundedOk, out,
+    });
 
-    const clamp = (n: number): number => Math.min(10, Math.max(1, Math.round(n)));
-    const scores = out.scores.map((x) => ({ area: x.area, score: clamp(x.score), verdict: x.verdict.trim() }));
-    const overall =
-      scores.length > 0
-        ? Math.round((scores.reduce((sum, x) => sum + x.score, 0) / scores.length) * 10)
-        : 0;
-    const trimFindings = <T extends { title: string; detail: string }>(list: T[]): T[] =>
-      list.filter((f) => f.title.trim() || f.detail.trim()).slice(0, 8);
-
-    const audit: SiteAuditContent = {
-      url,
-      siteName: name,
-      overall,
-      scores,
-      working: trimFindings(out.working),
-      missing: trimFindings(out.missing),
-      designStyle: {
-        summary: out.designSummary.trim(),
-        notes: out.designNotes.map((x) => x.trim()).filter(Boolean).slice(0, 6),
-      },
-      testFirst: trimFindings(out.testFirst).slice(0, 5),
-    };
-
-    const citations = usableCitations(g.citations).filter((c) => !isJunkSource(c.url, c.title));
+    const citations = usableCitations(groundedCitations).filter((c) => !isJunkSource(c.url, c.title));
     const title = `${name} — Site Audit`;
-    // A faithful markdown twin so the .md export and share paths keep working.
-    const markdown = [
-      `## Scorecard (overall ${overall}/100)`,
-      ...audit.scores.map((x) => `- **${x.area.replace(/_/g, ' ')}** — ${x.score}/10. ${x.verdict}`),
-      ``,
-      `## What's working`,
-      ...audit.working.map((f) => `- **${f.title}** — ${f.detail}`),
-      ``,
-      `## What's missing`,
-      ...audit.missing.map((f) => `- **${f.title}** — ${f.detail}${f.impact ? ` _Impact: ${f.impact}_` : ''}`),
-      ``,
-      `## Design style`,
-      audit.designStyle.summary,
-      ...audit.designStyle.notes.map((n) => `- ${n}`),
-      ``,
-      `## Test first`,
-      ...audit.testFirst.map((f, i) => `${i + 1}. **${f.title}** — ${f.detail}`),
-    ].join('\n');
-
     const report: Report = {
       id: `rpt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
       kind: 'site_audit',
       subjectId: input.companyId ?? url,
       title,
-      markdown,
+      markdown: siteAuditMarkdown(audit),
       citations,
       audit,
       createdAt: new Date().toISOString(),
