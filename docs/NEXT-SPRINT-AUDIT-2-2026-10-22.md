@@ -107,17 +107,14 @@ on an explicit Update or when inputs changed (data-hash), never silently; produc
 demand; image fixes are HTTP-only (no model calls); website audit = 1 page fetch + 1 grounded call + 1 structure call.
 Still open for the owner: hosted decks auto-refresh on open (audit SF-11) and the Deep Research comparison (about $1-3).
 
-## Status (updated after the second build pass)
-
-Working rules from the owner: no parallel big agents (cost; several failed and delivered nothing); build directly in
-the main session; keep context small; the only permitted sub-agents are cheap Haiku ones, and this harness cannot pick a model.
+## Status (after the third build pass; full pnpm check exit 0)
 
 | Stream | State |
 |--------|-------|
-| UI/ask fixes, chat compounds, card skins | done on beta/night-tip (skins: deck split, Saved embossed, Today acrylic) |
-| Company report | DONE and merged: engine (living-report*.ts), hero on Overview, full view (?report=1), PDF kind companyReport, share + Markdown, tests, a11y spec green. Needs a live key to judge AI quality |
-| Products & Roadmap | DONE and merged: report-style tab, product page, product news + YouTube videos (gated), tests, a11y green. Needs a live key for news/videos |
-| Website audit | engine committed on n2/audit (63ed406b evidence-based audit, 4cea9ecf verify fix); SiteAuditView UI NOT yet updated; not merged |
-| PDF branding for printScoped reports | not started (n2/audit worktree) |
-| Image hit rate | WIP on n2/images (e0d0e65f); harness baseline was empty 0/0; Worker fix unverified; not merged |
-| Integration | company report + products merged; remaining: audit UI, PDF branding, images; then full pnpm check, push |
+| UI/ask fixes, chat compounds, card skins | done (skins: deck split, Saved embossed, Today acrylic) |
+| Company report | done: engine, Overview hero, full view (?report=1), PDF + share + Markdown. Needs a live key to judge AI quality |
+| Products & Roadmap | done: report-style tab, product page, gated product news and YouTube. Needs a live key for news/videos |
+| Website audit | done: evidence-based engine + new screen (confidence banner, rubric with the page's quotes, checklist, impact/effort fixes). Needs a live key to judge audit quality |
+| PDF branding | done for every on-screen report PDF (saved report, briefing, site audit, signal finding); a test fails any print root with no brand |
+| Images | parser fallbacks (JSON-LD, content image, icon), 20 story pictures saved at research time, no-picture answers expire, harness fixed. Baseline on demo deck: logos 100%, site shots 100%, people 26%, stories low in the dev sweep. Live parse of 20 publishers: 14 readable, 13 with a picture; 6 refuse server reads, so ~90% real story pictures is not reachable from the page alone |
+| Not done | per-source image backstop (publisher icon) on story rows; Worker changes need the owner to deploy; people photos stay low by design (only verified Wikipedia matches); e2e suite beyond the a11y spec not re-run; nothing pushed |
