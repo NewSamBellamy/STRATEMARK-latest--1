@@ -7,6 +7,7 @@ import { LeaderFace, MarketPeers, OverviewSnapshot, columnScales } from './Overv
 
 vi.mock('./LeaderGrid', () => ({
   useWikiHeadshot: () => null,
+  useWikiHeadshotResult: () => ({ shot: null, settled: true }),
   photoCredit: () => 'Photo: Wikipedia',
   initialsOf: (name: string) => name.split(' ').map((w) => w[0]).join(''),
 }));

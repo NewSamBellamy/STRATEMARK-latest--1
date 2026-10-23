@@ -4,10 +4,12 @@ import userEvent from '@testing-library/user-event';
 import type { OrgNode } from '@mi/contracts';
 import { companyAccent, onAccent, ProfileCard, type ProfileCompany } from './ProfileCard';
 
+const headshotFor = (name: string) => (name === 'Pic Person'
+  ? { thumb: 'https://upload.example/pic.jpg', sourceUrl: 'https://commons.example/pic', license: 'CC BY-SA 4.0', author: 'A. Photographer' }
+  : null);
 vi.mock('./LeaderGrid', () => ({
-  useWikiHeadshot: (name: string) => (name === 'Pic Person'
-    ? { thumb: 'https://upload.example/pic.jpg', sourceUrl: 'https://commons.example/pic', license: 'CC BY-SA 4.0', author: 'A. Photographer' }
-    : null),
+  useWikiHeadshot: (name: string) => headshotFor(name),
+  useWikiHeadshotResult: (name: string) => ({ shot: headshotFor(name), settled: true }),
   photoCredit: () => 'A. Photographer, CC BY-SA 4.0',
   initialsOf: (n: string) => n.split(' ').map((w) => w[0]).join(''),
 }));

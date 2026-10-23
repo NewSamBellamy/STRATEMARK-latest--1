@@ -7,6 +7,7 @@ import { HistoryTab } from './HistoryTab';
 vi.mock('./LeaderGrid', () => ({
   WikiAvatar: ({ name }: { name: string }) => <span>{name.charAt(0)}</span>,
   useWikiHeadshot: () => null,
+  useWikiHeadshotResult: () => ({ shot: null, settled: true }),
   photoCredit: () => '',
   initialsOf: (n: string) => n.charAt(0),
 }));

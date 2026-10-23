@@ -7,6 +7,7 @@ import { PersonProfile } from './PersonProfile';
 
 vi.mock('./LeaderGrid', () => ({
   useWikiHeadshot: () => null,
+  useWikiHeadshotResult: () => ({ shot: null, settled: true }),
   photoCredit: () => '',
   initialsOf: (n: string) => n.charAt(0),
 }));
