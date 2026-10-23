@@ -23,3 +23,4 @@ export * from './metric-definition';
 export * from './market-profile';
 export * from './event-date';
 export * from './funding-text';
+export * from './company-report';

@@ -69,3 +69,5 @@ export * from './source-assessment';
 export * from './assess-facts';
 export * from './compare-observations';
 export * from './research-document';
+export { readCompanyReport, writeCompanyReport, type ReportHost } from './living-report-store';
+export { LIVING_REPORT_LABEL } from './living-report-gate';

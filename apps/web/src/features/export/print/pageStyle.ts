@@ -54,6 +54,8 @@ export function printTitleOf(job: PrintJob): string {
       return job.model.product.name;
     case 'personReport':
       return job.model.person.name;
+    case 'companyReport':
+      return job.report.companyName;
   }
 }
 

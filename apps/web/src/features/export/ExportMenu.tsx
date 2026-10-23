@@ -162,6 +162,12 @@ export function ExportMenu({ deck, company, transcript, className, variant = 'ba
     setBusy('report');
     setError(null);
     try {
+      // The living company report (written from everything on file, cited, with the card) when the engine keeps one.
+      const living = await repo.peekCompanyReport?.(company.id);
+      if (living) {
+        print({ kind: 'companyReport', report: living.report, card }, fileTitle);
+        return;
+      }
       const stored: StoredTabsInput[string] = {};
       for (const tab of PROFILE_TABS) {
         const r = await repo.peekDashboardTab?.(company.id, tab);
