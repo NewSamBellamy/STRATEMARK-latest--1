@@ -1,6 +1,6 @@
 import { sourceHref } from '@/lib/sourceHref';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight, ChevronLeft, ChevronRight, ExternalLink, SearchX } from 'lucide-react';
 import { publisherOf, type CompanyMetric, type CompanyVideo, type LiveIntelItem } from '@mi/contracts';
 import { useCompany, useCompanyMetrics, useDashboardTab } from '@/hooks/data';
@@ -32,6 +32,9 @@ import { StoryImage, VideoPlayer, VideoTile } from '@/components/media/StoryMedi
 import { MarketPeers, OverviewSnapshot } from './OverviewSnapshot';
 import { OverviewCoverage } from './OverviewCoverage';
 import { YourResearch } from './YourResearch';
+import { CompanyReportHero } from '../report/CompanyReportHero';
+import { CompanyReportView } from '../report/CompanyReportView';
+import { useSupports } from '@/lib/repository/RepositoryProvider';
 import { overviewParagraph } from '../overviewSummary';
 import { UNSUPPORTED_COMPANY_SUMMARY } from '@mi/research';
 
@@ -413,6 +416,15 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   const peerState = usePeers();
   const href = useTabHref(companyId);
   const [briefIdx, setBriefIdx] = useState(0);
+  // The full company report opens in place of the overview (?report=1), so it has its own link and back button works.
+  const [params, setParams] = useSearchParams();
+  const reportSupported = useSupports('peekCompanyReport');
+  const showReport = reportSupported && params.get('report') === '1';
+  const setReportOpen = (open: boolean) => {
+    const next = new URLSearchParams(params);
+    if (open) next.set('report', '1'); else next.delete('report');
+    setParams(next);
+  };
 
   // The same figure set the Metrics tab reads, from live metrics so a fresh
   // correction shows at once. Estimates are included and marked.
@@ -447,8 +459,8 @@ export function OverviewTab({ companyId }: { companyId: string }) {
   ];
   const active = briefTabs[Math.min(briefIdx, Math.max(0, briefTabs.length - 1))];
 
-  // The summary and the company's own site lead the tab; figures follow.
-  const summarySection = (
+  // Without a report engine (desktop, cloud) the tab keeps its stitched summary.
+  const legacySummary = (
     <>
       {query.isPending ? (
         <HydratingPanel label="Overview" variant="compact" />
@@ -474,7 +486,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
         <TabSection title="Summary">
           <div className={cn('grid gap-4', site && 'lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]')}>
           <div className="panel flex min-w-0 flex-col p-5 sm:p-6">
-            <h3 className="text-[11.5px] font-medium text-muted">Who they are</h3>
+            <h3 className="text-[11.5px] font-medium text-muted">Summary</h3>
             <p className="mt-2 max-w-[68ch] text-[15px] leading-7 text-content">{paragraph.sentences.join(' ')}</p>
             <SourceChips links={paragraph.links} />
             <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-1 pt-4 text-[12px]">
@@ -495,6 +507,13 @@ export function OverviewTab({ companyId }: { companyId: string }) {
       )}
     </>
   );
+
+  // The company report leads the tab (headline, abstract, the way in); figures follow.
+  const summarySection = reportSupported
+    ? <CompanyReportHero companyId={companyId} side={site ? <SiteGlance url={site} /> : undefined} onOpen={() => setReportOpen(true)} />
+    : legacySummary;
+
+  if (showReport) return <CompanyReportView companyId={companyId} onClose={() => setReportOpen(false)} />;
 
   return (
     <div className="cascade space-y-8">
@@ -544,7 +563,7 @@ export function OverviewTab({ companyId }: { companyId: string }) {
       <Watch companyId={companyId} />
       <Milestones companyId={companyId} />
 
-      {structured && active && (
+      {!reportSupported && structured && active && (
         <details id="research-brief" className="panel group scroll-mt-4 overflow-hidden">
           <summary className="flex cursor-pointer list-none items-center justify-between px-5 py-3.5 text-[13px] font-medium text-content hover:bg-surface-muted">
             Read the full research brief

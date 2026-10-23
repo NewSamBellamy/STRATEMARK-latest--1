@@ -142,10 +142,24 @@ function basis(inputs: ReportInputs, sources: readonly NumberedItem[]): CompanyR
   return { dataHash: inputs.dataHash, sources: distinct.size, notes: notes.size, tabs: inputs.tabNames.length, tabNames: [...inputs.tabNames], figures: inputs.figures.length };
 }
 
+/** One short line from a sentence: the stop dropped, cut at a natural break, never mid-word. */
+function shortLine(sentence: string, max = 96): string {
+  const text = sentence.replace(/\s+/g, ' ').trim().replace(/[.!?]$/, '');
+  if (text.length <= max) return text;
+  const window = text.slice(0, max);
+  const breaks = [...window.matchAll(/[,;:—–]| (?:that|which|focused on|with|using|for) /g)];
+  const cut = breaks.length > 0 ? breaks[breaks.length - 1]!.index! : -1;
+  if (cut >= 36) return `${window.slice(0, cut).trimEnd()}…`;
+  const word = window.lastIndexOf(' ');
+  return `${window.slice(0, word > 36 ? word : max).trimEnd()}…`;
+}
+
 function fallbackHeadline(inputs: ReportInputs): string {
-  const lead = inputs.company.oneLiner ? firstSentences(inputs.company.oneLiner, 1) : '';
-  const line = lead ? `${inputs.company.name}: ${lead}` : `${inputs.company.name}: company report`;
-  return line.length > 150 ? `${line.slice(0, 149).trimEnd()}…` : line;
+  const name = inputs.company.name;
+  const lead = inputs.company.oneLiner ? shortLine(firstSentences(inputs.company.oneLiner, 1)) : '';
+  if (!lead) return `${name}: company report`;
+  // A one-liner that already opens with the name does not repeat it.
+  return lead.toLowerCase().startsWith(name.toLowerCase()) ? lead : `${name}: ${lead}`;
 }
 
 /**

@@ -219,7 +219,7 @@ describe('the stored-data report (no model)', () => {
   it('is a usable, valid document with sourced sections, figures as stored, gaps named and the notes shown', () => {
     expect(companyReportSchema.safeParse(report).success).toBe(true);
     expect(report.status).toBe('stored_data');
-    expect(report.headline).toBe('Acme: Acme builds warehouse robots.');
+    expect(report.headline).toBe('Acme builds warehouse robots');
     const ids = report.sections.map((s) => s.id);
     expect(ids).toEqual(expect.arrayContaining(['executive_summary', 'what_they_do', 'business_model', 'leadership_culture', 'momentum', 'risks', 'your_research', 'sources']));
     const figures = report.sections.find((s) => s.id === 'business_model')!.blocks.find((b) => b.type === 'figures')!.figures!;
