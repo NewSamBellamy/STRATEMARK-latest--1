@@ -190,7 +190,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
             {readOnly ? <span /> : <div className="flex items-center gap-1"><SaveCardButton cardId={card.id} />
               {company && !view.signal && <FollowTodayButton companyId={company.id} companyName={company.name} />}
               <button type="button" className="card-control" aria-label="Share card" onClick={() => setShareOpen(true)}><Share2 size={15} /></button>
-              {view.signal && <button type="button" className="card-control" aria-label="Save as PDF" title="Save this finding as a PDF" onClick={printScoped}><Printer size={15} /></button>}
+              {view.signal && <button type="button" className="card-control" aria-label="Save as PDF" title="Save this finding as a PDF" onClick={() => printScoped(`${view.title} finding`)}><Printer size={15} /></button>}
               {canReport && company && dashboardUrl && (
                 <button type="button" className="card-control" aria-label="Create report" title={`Create a report on ${company.name}`}
                   onClick={() => setReportOpen(true)}><FilePlus2 size={15} /></button>

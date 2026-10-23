@@ -11,6 +11,7 @@ import { useCards, useReport } from '@/hooks/data';
 import { SiteAuditView } from './SiteAuditView';
 import { AiCover } from '@/components/media/AiCover';
 import { printScoped } from '@/lib/print';
+import { PrintBrand, PrintColophon } from '@/components/PrintFrame';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { formatRelative } from '@/lib/format';
 import { ExportMenu } from '@/features/export/ExportMenu';
@@ -165,6 +166,7 @@ export default function ReportViewerPage() {
           const citations = Array.isArray(r.citations) ? r.citations : [];
           return (
           <article className="brf-print-root panel p-6">
+            <PrintBrand kind={r.kind === 'deck' ? 'Market report' : 'Company report'} />
             <header className="mb-4 border-y-[3px] border-double border-content/70 py-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -199,7 +201,7 @@ export default function ReportViewerPage() {
                       ),
                   }}
                   downloads={[
-                    { key: 'pdf', label: 'PDF', hint: 'Print or save as PDF', icon: 'pdf', onSelect: () => printScoped() },
+                    { key: 'pdf', label: 'PDF', hint: 'Print or save as PDF', icon: 'pdf', onSelect: () => printScoped(r.title) },
                     {
                       key: 'md',
                       label: 'Markdown',
@@ -288,6 +290,7 @@ export default function ReportViewerPage() {
                 </ul>
               </footer>
             )}
+            <PrintColophon />
           </article>
           );
         }}
