@@ -93,14 +93,29 @@ keeping both additions (each stream adds NEW files and only thin hooks there).
 6. Verify UI with Playwright screenshots (browser MCP is not connected) using a
    temporary spec you delete afterwards.
 
+## Cost levers (WS-F)
+
+Already in place: fast chat tier (flash) for most questions; adaptive pacing so a paid key is not held to the free
+rate; relay circuit breaker (no per-query asks to an unconfigured relay); cached tabs re-render from stored selections
+with no provider call; document digest = one structure call; drop-in/chat write-back reuse the answer already paid for.
+
+New in this sprint: chat answers now keep their sourced sentences against the right company even for a person/product
+chat (no wasted search), and the open dashboard re-reads them for free.
+
+Rules for the new work (each stream must hold to them): synthesis (Company Report) = at most 1-2 structure calls and only
+on an explicit Update or when inputs changed (data-hash), never silently; product research top-N automatic, rest on
+demand; image fixes are HTTP-only (no model calls); website audit = 1 page fetch + 1 grounded call + 1 structure call.
+Still open for the owner: hosted decks auto-refresh on open (audit SF-11) and the Deep Research comparison (about $1-3).
+
 ## Status
 
 | Stream | State |
 |--------|-------|
-| WS-0 | pending |
-| WS-A | pending |
-| WS-G | pending |
-| WS-B | pending |
-| WS-D | pending |
-| WS-E/E2 | pending |
-| WS-C/F | pending |
+| WS-0 UI/prompt fixes | done, `6d3d21ac` on beta/night-tip |
+| WS-C chat compounds into dashboards | done, `581dec66` on beta/night-tip |
+| WS-A card frame options | done: side project `work/sm-card-frame-options` (open index.html); recommendation: logo-colour slab, foil bevel for high tier. Nothing in the app changed; waiting on the owner to choose |
+| WS-G Company Report | agent running, branch n2/report |
+| WS-B Products & Roadmap | agent running, branch n2/products |
+| WS-D image hit rate | agent running, branch n2/images |
+| WS-E/E2 PDF branding + website audit | agent running, branch n2/audit |
+| Integration | pending: merge n2/* into beta/night-tip, full pnpm check, push |
