@@ -11,12 +11,13 @@
  * with "Not reported": a person with only a name and a title gets a card with
  * a name and a title. A move tag needs a sourced move from the last year.
  */
-import { useState, type HTMLAttributes } from 'react';
+import { useEffect, useState, type HTMLAttributes } from 'react';
 import type { OrgNode } from '@mi/contracts';
 import { deriveTriad } from '@/lib/brand';
 import { cn } from '@/lib/cn';
 import { safeHttpUrl } from '@/lib/sourceHref';
-import { initialsOf, photoCredit, useWikiHeadshot } from './LeaderGrid';
+import { initialsOf, photoCredit, useWikiHeadshotResult } from './LeaderGrid';
+import { useImageSlot } from '@/lib/media/useImageSlot';
 import { GROUP_LABEL, recentMove } from './orgRank';
 import { cardBio, moveNote, statLines } from './personFacts';
 
@@ -79,11 +80,17 @@ export function Portrait({
   size: keyof typeof PORTRAIT_SIZE;
   className?: string;
 }) {
-  const shot = useWikiHeadshot(person.name, companyName);
+  const { shot, settled } = useWikiHeadshotResult(person.name, companyName);
   const supplied = safeHttpUrl(person.photoUrl);
   const [failed, setFailed] = useState(false);
+  const [wikiFailed, setWikiFailed] = useState(false);
+  const audit = useImageSlot('person');
   const useSupplied = Boolean(supplied) && !failed;
-  const src = useSupplied ? supplied! : shot?.thumb;
+  const src = useSupplied ? supplied! : shot && !wikiFailed ? shot.thumb : undefined;
+  // Both photos tried (or none exists once the lookup settles): the initials tile holds the frame.
+  useEffect(() => {
+    if (!src && (settled || failed)) audit.report('fallback', supplied ?? shot?.thumb ?? null, person.name);
+  }, [audit, src, settled, failed, supplied, shot, person.name]);
   return (
     <span
       className={cn(
@@ -98,7 +105,8 @@ export function Portrait({
           alt={person.name}
           title={!useSupplied && shot ? photoCredit(shot) : undefined}
           loading="lazy"
-          onError={useSupplied ? () => setFailed(true) : undefined}
+          onLoad={() => audit.report('loaded', src, person.name)}
+          onError={() => (useSupplied ? setFailed(true) : setWikiFailed(true))}
           className="h-full w-full object-cover"
         />
       ) : (

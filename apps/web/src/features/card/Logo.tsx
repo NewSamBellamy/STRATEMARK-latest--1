@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { knownCompanyDomain, knownCompanyLogoUrl } from '@mi/research';
 import { cn } from '@/lib/cn';
 import { initials } from '@/lib/format';
+import { useImageSlot } from '@/lib/media/useImageSlot';
 import { logoDomainOf, safeLogoUrl } from './logoSources';
 import {
   HERO_DISPLAY_PX, brandPaletteFrom, logoVerdict, pixelStatsFrom, rememberLogo, rememberedLogo,
@@ -191,6 +192,7 @@ export function Logo({
     ];
   }, [website, retryNonce, logoUrl, name]);
 
+  const audit = useImageSlot('logo');
   const [best, setBest] = useState<Candidate | null>(null);
   const [settled, setSettled] = useState(false);
   const key = sources.join('|');
@@ -198,7 +200,9 @@ export function Logo({
   useEffect(() => {
     setBest(null);
     setSettled(false);
+    audit.report('requested', website ?? name, name);
     if (sources.length === 0) {
+      audit.report('fallback', website ?? null, name);
       setSettled(true);
       onAvailabilityChange?.(false);
       return;
@@ -226,6 +230,7 @@ export function Logo({
         }),
       );
       if (cancelled) return;
+      audit.report(result.winner ? 'loaded' : 'fallback', result.winner?.src ?? website ?? null, name + key);
       setSettled(true);
       onAvailabilityChange?.(Boolean(result.winner));
     })();

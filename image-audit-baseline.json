@@ -1,0 +1,172 @@
+{
+  "at": "2026-10-23T04:19:02.192Z",
+  "base": "http://localhost:4611",
+  "snap": {},
+  "dom": [
+    {
+      "label": "deck",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "nvidia-corporati/overview",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "nvidia-corporati/metrics",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "nvidia-corporati/team_org",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "nvidia-corporati/history",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "nvidia-corporati/products_roadmap",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "nvidia-corporati/live_intel",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "nvidia-corporati/mission_governance",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "nvidia-corporati/live_landing",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "openai_5sz16/overview",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "openai_5sz16/metrics",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "openai_5sz16/team_org",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "openai_5sz16/history",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "openai_5sz16/products_roadmap",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "openai_5sz16/live_intel",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "openai_5sz16/mission_governance",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "openai_5sz16/live_landing",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "anthropic_1ydvf/overview",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "anthropic_1ydvf/metrics",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "anthropic_1ydvf/team_org",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "anthropic_1ydvf/history",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "anthropic_1ydvf/products_roadmap",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "anthropic_1ydvf/live_intel",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "anthropic_1ydvf/mission_governance",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "anthropic_1ydvf/live_landing",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "coreweave_q8nfb/overview",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "coreweave_q8nfb/metrics",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "coreweave_q8nfb/team_org",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "coreweave_q8nfb/history",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "coreweave_q8nfb/products_roadmap",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "coreweave_q8nfb/live_intel",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "coreweave_q8nfb/mission_governance",
+      "total": 0,
+      "ok": 0
+    },
+    {
+      "label": "coreweave_q8nfb/live_landing",
+      "total": 0,
+      "ok": 0
+    }
+  ]
+}

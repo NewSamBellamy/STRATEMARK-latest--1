@@ -1,0 +1,10 @@
+import { chromium } from '@playwright/test';
+const b = await chromium.launch(); const p = await b.newPage({ viewport:{width:1440,height:900} });
+p.on('console', m => { if (m.type()==='error') console.log('ERR', m.text().slice(0,200)); });
+p.on('pageerror', e => console.log('PAGEERR', String(e).slice(0,300)));
+await p.goto('http://localhost:4611/#/markets/mkt_frontier-ai-ecosystem_s248s/deck');
+await p.waitForTimeout(6000);
+console.log(await p.evaluate(() => location.href + ' | ' + document.body.innerText.slice(0,300).replace(/\n/g,' / ')));
+console.log('imgs', await p.evaluate(() => document.querySelectorAll('img').length), 'audit', await p.evaluate(() => JSON.stringify(window.__imgAudit?.snapshot?.() ?? null)).catch(()=>'x'));
+await p.screenshot({ path: '../../dbg.png' });
+await b.close();

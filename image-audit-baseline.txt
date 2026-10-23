@@ -1,0 +1,41 @@
+walked deck
+walked nvidia-corporati/overview
+walked nvidia-corporati/metrics
+walked nvidia-corporati/team_org
+walked nvidia-corporati/history
+walked nvidia-corporati/products_roadmap
+walked nvidia-corporati/live_intel
+walked nvidia-corporati/mission_governance
+walked nvidia-corporati/live_landing
+walked openai_5sz16/overview
+walked openai_5sz16/metrics
+walked openai_5sz16/team_org
+walked openai_5sz16/history
+walked openai_5sz16/products_roadmap
+walked openai_5sz16/live_intel
+walked openai_5sz16/mission_governance
+walked openai_5sz16/live_landing
+walked anthropic_1ydvf/overview
+walked anthropic_1ydvf/metrics
+walked anthropic_1ydvf/team_org
+walked anthropic_1ydvf/history
+walked anthropic_1ydvf/products_roadmap
+walked anthropic_1ydvf/live_intel
+walked anthropic_1ydvf/mission_governance
+walked anthropic_1ydvf/live_landing
+walked coreweave_q8nfb/overview
+walked coreweave_q8nfb/metrics
+walked coreweave_q8nfb/team_org
+walked coreweave_q8nfb/history
+walked coreweave_q8nfb/products_roadmap
+walked coreweave_q8nfb/live_intel
+walked coreweave_q8nfb/mission_governance
+walked coreweave_q8nfb/live_landing
+
+=== IMAGE HIT RATE (loaded / settled) ===
+surface            hit  loaded  fallback  requested  unsettled
+ALL                n/a       0         0
+
+=== TOP FAILING HOSTS (by fallback count) ===
+
+DOM cross-check: 0/0 <img> elements (non-bundled) rendered with real pixels across 33 views

@@ -3,6 +3,7 @@ import { usableCitations, type CardWithCompany, type SourceCredibility } from '@
 import { heroNamesOtherCompany } from '@/lib/media/heroGuard';
 import { getRealCover } from '@/lib/media/realCover';
 import { useInView } from '@/components/media/StoryMedia';
+import { recordImage } from '@/lib/media/imageAudit';
 
 export interface SignalHero {
   /** Displayable picture address (through the hosted image proxy when there is one). */
@@ -51,7 +52,9 @@ export function useSignalHero(data: CardWithCompany, enabled: boolean): [React.R
 
   useEffect(() => {
     setHero(null);
-    if (!enabled || !seen || !key) return;
+    if (!enabled || !seen) return;
+    if (!key) { recordImage('signal-hero', 'fallback', null); return; }
+    recordImage('signal-hero', 'requested', key.split('|')[0]);
     let live = true;
     void (async () => {
       for (const url of key.split('|')) {
@@ -62,6 +65,8 @@ export function useSignalHero(data: CardWithCompany, enabled: boolean): [React.R
         setHero({ src: cover.src, credit: cover.publisher, pageUrl: url });
         return;
       }
+      // Every candidate page came back empty or named another company: the card keeps its default art.
+      recordImage('signal-hero', 'fallback', key.split('|')[0]);
     })();
     return () => { live = false; };
   }, [enabled, seen, key, cardId, subject, website]);

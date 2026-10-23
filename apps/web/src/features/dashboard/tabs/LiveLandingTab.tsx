@@ -14,9 +14,13 @@ import {
   pageShotUrlAlt,
 } from '@/lib/screenshot';
 import { probeSiteChallenge } from '@/lib/media/siteChallenge';
+import { getRealCover } from '@/lib/media/realCover';
+import { forgetShotProvider, recalledShotProvider, rememberShotProvider } from '@/lib/media/siteShotMemory';
+import { useImageSlot } from '@/lib/media/useImageSlot';
+import { imageReferrerPolicy } from '@/lib/hostedApi';
 
 /** How long a capture may sit on "Capturing the live site" before we give up on it. */
-export const CAPTURE_TIMEOUT_MS = 60_000;
+export const CAPTURE_TIMEOUT_MS = 35_000;
 
 /** Shown instead of a CAPTCHA screenshot, or a capture that never arrived. `inLink` when a parent link already opens the site. */
 function PreviewUnavailable({ url, inLink }: { url: string; inLink: boolean }) {
@@ -41,7 +45,11 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
   const [attempt, setAttempt] = useState(0);
   // After mShots exhausts its attempts, ONE pass through the independent
   // second provider (thum.io) — the permanent "works here, not there" fix.
-  const [provider, setProvider] = useState<'primary' | 'alt'>('primary');
+  // A site whose second provider worked last time starts there: no retry loop on a repeat visit.
+  const [provider, setProvider] = useState<'primary' | 'alt'>(() => recalledShotProvider(url) ?? 'primary');
+  // The page's own preview image: the last resort before the honest "unavailable" state.
+  const [og, setOg] = useState<string | null>(null);
+  const audit = useImageSlot('site-shot');
   const [settled, setSettled] = useState(false);
   const [failed, setFailed] = useState(false);
   const [unavailable, setUnavailable] = useState<'blocked' | 'timeout' | null>(null);
@@ -57,6 +65,7 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
 
   const scheduleRetry = () => {
     if (provider === 'alt') {
+      forgetShotProvider(url);
       setFailed(true);
       onFail?.();
       return;
@@ -68,6 +77,19 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setAttempt((a) => a + 1), RETRY_MS);
   };
+
+  useEffect(() => { audit.report('requested', url, url); }, [audit, url]);
+
+  const gaveUp = failed || unavailable === 'timeout';
+  useEffect(() => {
+    if (!gaveUp) return;
+    let live = true;
+    void getRealCover(url).then((c) => { if (live && c?.src) setOg(c.src); });
+    return () => { live = false; };
+  }, [gaveUp, url]);
+  useEffect(() => {
+    if (gaveUp && !og && !(failed && fallbackShot)) audit.report('fallback', url, url);
+  }, [audit, gaveUp, og, failed, fallbackShot, url]);
 
   const retryAll = () => {
     if (timer.current) clearTimeout(timer.current);
@@ -93,17 +115,26 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
     return () => clearTimeout(t);
   }, [url, settled, failed, attempt]);
 
+  const ogImage = og ? (
+    <img src={og} alt={`Preview of ${url}`} referrerPolicy={imageReferrerPolicy(og)}
+      onLoad={() => audit.report('loaded', og, url)} onError={() => setOg(null)}
+      className="h-full w-full object-cover object-top dark:opacity-80 dark:brightness-90" />
+  ) : null;
+  // A capture that timed out can still show the site's own preview picture; a CAPTCHA wall never does.
+  if (unavailable === 'timeout' && ogImage) return ogImage;
   if (unavailable) return <PreviewUnavailable url={url} inLink={quiet} />;
 
   if (failed && fallbackShot) {
     return (
       <img
         src={fallbackShot}
+        onLoad={() => audit.report('loaded', fallbackShot, url)}
         alt="Site preview"
         className="h-full w-full object-cover object-top dark:opacity-80 dark:brightness-90"
       />
     );
   }
+  if (failed && ogImage) return ogImage;
   if (failed && quiet) return null;
   if (failed) {
     return (
@@ -143,7 +174,11 @@ export function SitePreview({ url, fallbackShot, quiet = false, onFail }: { url:
           const w = (e.target as HTMLImageElement).naturalWidth;
           // Placeholder → the capture is still rendering server-side; retry.
           if (w > 0 && w < PLACEHOLDER_MAX_WIDTH) scheduleRetry();
-          else setSettled(true);
+          else {
+            setSettled(true);
+            rememberShotProvider(url, provider);
+            audit.report('loaded', (e.target as HTMLImageElement).currentSrc, url);
+          }
         }}
         onError={() => scheduleRetry()}
       />

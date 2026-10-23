@@ -16,6 +16,8 @@ import { hasHostedApi, hostedUrl, imageReferrerPolicy } from '@/lib/hostedApi';
 import { getRealCover } from '@/lib/media/realCover';
 import { heroNamesOtherCompany, type HeroSubject } from '@/lib/media/heroGuard';
 import { cn } from '@/lib/cn';
+import type { ImageSurface } from '@/lib/media/imageAudit';
+import { useImageSlot } from '@/lib/media/useImageSlot';
 
 /** True once the element has come near the viewport (then stays true). */
 export function useInView<T extends Element>(margin = '300px'): [React.RefObject<T>, boolean] {
@@ -62,7 +64,7 @@ export function useStoryPicture(pageUrl: string | null | undefined, stored: stri
  * when the story has no picture (or it fails to load) `fallback` is rendered,
  * or nothing.
  */
-export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback = null, credit = false, subject, imageAlt }: {
+export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback = null, credit = false, subject, imageAlt, surface }: {
   pageUrl: string | null | undefined;
   imageUrl?: string | null;
   publisher?: string | null;
@@ -72,6 +74,8 @@ export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback =
   /** The company the story is about: a picture naming a different company is dropped (shows `fallback`). */
   subject?: HeroSubject;
   imageAlt?: string | null;
+  /** Which image-audit surface this slot counts toward (default: story, or overview-thumb when there is no page url). */
+  surface?: ImageSurface;
 }) {
   const [ref, inView] = useInView<HTMLDivElement>();
   const picture = useStoryPicture(pageUrl, imageUrl, publisher, inView);
@@ -79,6 +83,13 @@ export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback =
   const [loaded, setLoaded] = useState(false);
   const wrongCompany = !!subject && !!picture && picture !== 'loading' && heroNamesOtherCompany(picture.src, imageAlt, subject);
   const failed = picture === null || broken || wrongCompany;
+  const audit = useImageSlot(surface ?? (pageUrl ? 'story' : 'overview-thumb'));
+  const slotKey = `${pageUrl ?? ''}|${imageUrl ?? ''}`;
+  const shownSrc = picture && picture !== 'loading' ? picture.src : null;
+  useEffect(() => {
+    if (inView) audit.report('requested', shownSrc ?? imageUrl ?? pageUrl, slotKey);
+    if (inView && failed) audit.report('fallback', shownSrc ?? imageUrl ?? pageUrl, slotKey);
+  }, [audit, inView, failed, shownSrc, imageUrl, pageUrl, slotKey]);
   if (failed && fallback === null) return <div ref={ref} className="hidden" data-story-empty="" />;
   return (
     <div ref={ref} className={cn('relative overflow-hidden bg-surface-2', className)}>
@@ -92,7 +103,7 @@ export function StoryImage({ pageUrl, imageUrl, publisher, className, fallback =
             loading="lazy"
             decoding="async"
             referrerPolicy={imageReferrerPolicy(picture.src)}
-            onLoad={() => setLoaded(true)}
+            onLoad={() => { setLoaded(true); audit.report('loaded', picture.src, slotKey); }}
             onError={() => setBroken(true)}
             className={cn('absolute inset-0 h-full w-full object-cover transition-opacity duration-500', loaded ? 'opacity-100' : 'opacity-0')}
           />

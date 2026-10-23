@@ -13,6 +13,7 @@ import { cn } from '@/lib/cn';
 import { fetchWikidataHeadshot } from '@/lib/media/wikidataHeadshot';
 import { loadPersisted, makeLimiter, savePersisted } from '@/lib/media/headshotCache';
 import { LruCache, fetchWithTimeout } from '@/lib/media/lookupCache';
+import { useImageSlot } from '@/lib/media/useImageSlot';
 
 export interface Headshot {
   thumb: string;
@@ -175,6 +176,11 @@ async function resolveHeadshot(f: typeof fetch, personName: string, companyName:
 
 /** Shared hook: resolve the verified headshot for a person at a company. */
 export function useWikiHeadshot(name: string, companyName: string): Headshot | null {
+  return useWikiHeadshotResult(name, companyName).shot;
+}
+
+/** The headshot lookup with whether it has finished, so a miss can be told from "still looking". */
+export function useWikiHeadshotResult(name: string, companyName: string): { shot: Headshot | null; settled: boolean } {
   const key = `${name}::${companyName}`;
   // The face is remembered WITH whose face it is: an avatar reused for another
   // person (a list re-filtered, re-sorted or re-keyed) must never keep showing
@@ -189,7 +195,7 @@ export function useWikiHeadshot(name: string, companyName: string): Headshot | n
       live = false;
     };
   }, [name, companyName]);
-  return shot?.key === key ? shot.shot : null;
+  return shot?.key === key ? { shot: shot.shot, settled: true } : { shot: null, settled: false };
 }
 
 export function photoCredit(shot: Headshot): string {
@@ -221,7 +227,13 @@ export function WikiAvatar({
   size?: 'sm' | 'md';
   ringClass?: string;
 }) {
-  const shot = useWikiHeadshot(name, companyName);
+  const { shot: found, settled } = useWikiHeadshotResult(name, companyName);
+  const [failedThumb, setFailedThumb] = useState<string | null>(null);
+  const shot = found && found.thumb !== failedThumb ? found : null;
+  const audit = useImageSlot('person');
+  useEffect(() => {
+    if (settled && !shot) audit.report('fallback', failedThumb ?? found?.thumb ?? null, name);
+  }, [audit, settled, shot, failedThumb, found, name]);
   return (
     <span
       className={cn(
@@ -237,6 +249,8 @@ export function WikiAvatar({
           title={photoCredit(shot)}
           className="h-full w-full object-cover"
           loading="lazy"
+          onLoad={() => audit.report('loaded', shot.thumb, name)}
+          onError={() => setFailedThumb(shot.thumb)}
         />
       ) : (
         <span

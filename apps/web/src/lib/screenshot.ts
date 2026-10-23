@@ -27,7 +27,7 @@ export function pageShotUrlAlt(url: string): string {
 
 /** mShots' "generating…" placeholder is far narrower than a real 1280px capture. */
 export const SHOT_PLACEHOLDER_MAX_WIDTH = 700;
-export const SHOT_MAX_ATTEMPTS = 8;
+export const SHOT_MAX_ATTEMPTS = 5;
 export const SHOT_RETRY_MS = 3500;
 
 /** Publisher favicon — a dependable small real image for source chips. */

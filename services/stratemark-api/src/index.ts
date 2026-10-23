@@ -34,7 +34,10 @@ import { allowedModel, allowedOrigin, callCostMicros, isPrivateIpv4, readBudgetU
 import { inspectGeminiRequest } from './gemini-request';
 import { READER_LIMITS_DEFAULT } from './reader-quota';
 import type { BudgetCounter } from './budget';
-import { previewFromHtml, type PagePreview } from './preview';
+import { previewDetailFromHtml, type PagePreviewDetail } from './preview';
+import {
+  MAX_IMAGE_BYTES, SERVABLE_IMAGE_TYPE, imageRequestHeaders, pageRequestHeaders, previewCacheSeconds, readPrefix,
+} from './image-fetch';
 import type { ReaderQuota } from './reader-quota';
 import type { ShareQuota, ShareVault } from './share-vault';
 import { visitorAddress } from './visitor';
@@ -84,7 +87,6 @@ const MAX_PAGE_BYTES = 12 * 1024 * 1024;
 /** Longest a grounded Gemini call may run; the browser's own attempts are shorter. */
 const UPSTREAM_TIMEOUT_MS = 120_000;
 const DNS_TIMEOUT_MS = 5_000;
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 function cors(origin: string | null): Record<string, string> {
   return origin ? {
@@ -462,7 +464,7 @@ async function fetchPublicHtml(start: URL, limit: number): Promise<{ finalUrl: s
     if (!(await hostIsPublic(url.hostname))) return null;
     const res = await fetch(url.href, {
       redirect: 'manual', signal: AbortSignal.timeout(8_000),
-      headers: { 'User-Agent': UA, Accept: 'text/html' },
+      headers: pageRequestHeaders(),
     }).catch(() => null);
     if (!res) return null;
     if ([301, 302, 303, 307, 308].includes(res.status)) {
@@ -473,7 +475,8 @@ async function fetchPublicHtml(start: URL, limit: number): Promise<{ finalUrl: s
     }
     const type = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
     if (res.status !== 200 || !['text/html', 'application/xhtml+xml'].includes(type)) return null;
-    const bytes = await readCapped(res, limit).catch(() => null);
+    // The tags a preview needs sit at the top: an over-long page keeps its head instead of failing outright.
+    const bytes = await readPrefix(res, limit).catch(() => null);
     const html = bytes ? new TextDecoder().decode(bytes) : null;
     return html ? { finalUrl: url.href, html } : null;
   }
@@ -488,32 +491,38 @@ async function fetchPublicHtml(start: URL, limit: number): Promise<{ finalUrl: s
  */
 async function previewRead(request: Request, origin: string): Promise<Response> {
   const target = safePublicUrl(new URL(request.url).searchParams.get('url'));
-  if (!target) return json({ image: null, title: null, site: null }, 400, origin);
+  if (!target) return json({ image: null, title: null, site: null, icon: null }, 400, origin);
   const cache = (caches as unknown as { default: Cache }).default;
-  const cacheKey = new Request(`https://preview.cache/${encodeURIComponent(target.href)}`);
+  // v2: the old key held one-day "no picture" answers; those are bypassed rather than waited out.
+  const cacheKey = new Request(`https://preview.cache/v2/${encodeURIComponent(target.href)}`);
   const hit = await cache.match(cacheKey);
-  let body: PagePreview;
+  let body: PagePreviewDetail;
   if (hit) {
-    body = await hit.json() as PagePreview;
+    body = await hit.json() as PagePreviewDetail;
   } else {
-    // Over-long pages fail the cap and simply get no preview image.
-    const page = await fetchPublicHtml(target, 1_500_000);
-    body = page ? previewFromHtml(page.html, page.finalUrl) : { image: null, title: null, site: null };
+    // Only the head of a long page is read (the tags sit at the top).
+    const page = await fetchPublicHtml(target, 900_000);
+    body = page ? previewDetailFromHtml(page.html, page.finalUrl) : { image: null, imageKind: null, icon: null, title: null, site: null };
+    // A page with no picture is asked again in ten minutes (publishers rate-limit and recover); a picture is kept a week.
     await cache.put(cacheKey, new Response(JSON.stringify(body), {
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${body.image ? 604_800 : 86_400}` },
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${previewCacheSeconds(body)}` },
     }));
   }
-  return json(body, 200, origin, { 'Cache-Control': 'public, max-age=86400' });
+  // `icon` is additive: older clients ignore it. The browser keeps a miss as briefly as the edge does.
+  return json(body, 200, origin, { 'Cache-Control': `public, max-age=${body.image ? 86_400 : 600}` });
 }
 
 async function imageRead(request: Request, origin: string): Promise<Response> {
-  let url = safePublicUrl(new URL(request.url).searchParams.get('url'));
+  const params = new URL(request.url).searchParams;
+  let url = safePublicUrl(params.get('url'));
   if (!url) return new Response(null, { status: 400, headers: cors(origin) });
+  // Optional `page`: the article the picture was found on, sent to the image host as Referer (hotlink rules).
+  const page = safePublicUrl(params.get('page'));
   for (let hop = 0; hop <= 3; hop++) {
     if (!(await hostIsPublic(url.hostname))) return new Response(null, { status: 403, headers: cors(origin) });
     const res = await fetch(url.href, {
       redirect: 'manual', signal: AbortSignal.timeout(8_000),
-      headers: { 'User-Agent': UA, Accept: 'image/*' },
+      headers: imageRequestHeaders(url, page),
       cf: { cacheTtl: 86_400, cacheEverything: true },
     } as RequestInit).catch(() => null);
     if (!res) return new Response(null, { status: 502, headers: cors(origin) });
@@ -525,7 +534,7 @@ async function imageRead(request: Request, origin: string): Promise<Response> {
     }
     const type = (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase();
     // SVG is excluded: it can carry script, and colour sampling needs a raster anyway.
-    if (res.status !== 200 || !/^image\/(png|jpeg|gif|webp|x-icon|vnd\.microsoft\.icon|avif)$/.test(type)) {
+    if (res.status !== 200 || !SERVABLE_IMAGE_TYPE.test(type)) {
       return new Response(null, { status: 415, headers: cors(origin) });
     }
     const bytes = await readCapped(res, MAX_IMAGE_BYTES);

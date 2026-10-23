@@ -5,6 +5,7 @@ import { buildCardView, type CardView } from './card-view';
 import { faceFooter } from './faceFooter';
 import { Logo } from './Logo';
 import { useSignalHero } from './useSignalHero';
+import { recordImage } from '@/lib/media/imageAudit';
 
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
@@ -92,7 +93,9 @@ export function CollectibleCard({
               {heroShown ? (
                 <>
                   <img src={heroShown.src} className="h-full w-full object-cover" alt="" draggable={false} loading="lazy"
-                    referrerPolicy="no-referrer" data-testid="signal-hero" onError={() => setHeroFailed(heroShown.src)} />
+                    referrerPolicy="no-referrer" data-testid="signal-hero"
+                    onLoad={() => recordImage('signal-hero', 'loaded', heroShown.src)}
+                    onError={() => { recordImage('signal-hero', 'fallback', heroShown.src); setHeroFailed(heroShown.src); }} />
                   {heroShown.credit && <span className="collectible__hero-credit">{heroShown.credit}</span>}
                 </>
               ) : <MarketCardArt type={data.card.cardType} />}

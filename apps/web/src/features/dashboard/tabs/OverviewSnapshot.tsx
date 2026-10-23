@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useIsFetching } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
@@ -13,7 +13,8 @@ import { deriveInvestors } from '@mi/contracts';
 import { unifyFunding } from '../funding';
 import { UnknownInline } from '@/features/card/UnknownValue';
 import { Logo } from '@/features/card/Logo';
-import { initialsOf, photoCredit, useWikiHeadshot } from './LeaderGrid';
+import { initialsOf, photoCredit, useWikiHeadshotResult } from './LeaderGrid';
+import { useImageSlot } from '@/lib/media/useImageSlot';
 import { safeHttpUrl } from '@/lib/sourceHref';
 import type { OrgNode } from '@mi/contracts';
 import { usePeers } from '../usePeers';
@@ -52,14 +53,19 @@ function PanelHead({ title, to, label }: { title: string; to: string; label: str
 export function LeaderFace({ person, companyName }: { person: Pick<OrgNode, 'name' | 'photoUrl'>; companyName: string }) {
   const supplied = safeHttpUrl(person.photoUrl);
   const [suppliedFailed, setSuppliedFailed] = useState(false);
-  const wiki = useWikiHeadshot(person.name, companyName);
+  const { shot: wiki, settled } = useWikiHeadshotResult(person.name, companyName);
   const [wikiFailed, setWikiFailed] = useState(false);
   const src = supplied && !suppliedFailed ? supplied : wiki && !wikiFailed ? wiki.thumb : null;
+  const audit = useImageSlot('person');
+  useEffect(() => {
+    if (!src && settled) audit.report('fallback', supplied ?? wiki?.thumb ?? null, person.name);
+  }, [audit, src, settled, supplied, wiki, person.name]);
   return (
     <span className="relative grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-surface-2">
       {src ? (
         <img src={src} alt="" title={src === supplied ? undefined : wiki ? photoCredit(wiki) : undefined} loading="lazy" decoding="async"
           referrerPolicy="no-referrer" className="h-full w-full object-cover"
+          onLoad={() => audit.report('loaded', src, person.name)}
           onError={() => (src === supplied ? setSuppliedFailed(true) : setWikiFailed(true))} />
       ) : (
         <span className="font-display text-[13px] font-semibold tracking-wide text-muted" aria-hidden>{initialsOf(person.name)}</span>

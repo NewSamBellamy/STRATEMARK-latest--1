@@ -17,7 +17,7 @@
  * Aspect is explicit: wide panels get true 16:9 generations, thumbs 4:3 —
  * no more square images cropped into letterboxes.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useRealCover } from '@/lib/media/realCover';
 import { imageReferrerPolicy } from '@/lib/hostedApi';
@@ -25,6 +25,7 @@ import { useApiKey } from '@/lib/settings/apiKey';
 import { useAiCover, type CoverAspect } from '@/lib/ai/aiCover';
 import { EditorialCover } from './EditorialCover';
 import { cn } from '@/lib/cn';
+import { useImageSlot } from '@/lib/media/useImageSlot';
 
 export function AiCover({
   cacheKey,
@@ -55,6 +56,11 @@ export function AiCover({
   const aiEnabled = real.status === 'none' || realBroken;
   const { url: generated, respinning, respin } = useAiCover(cacheKey, title, context, shape, aiEnabled);
   const hasKey = useApiKey((s) => s.hasKey);
+  const audit = useImageSlot('report-cover');
+  const settledEditorial = real.status === 'none' && !generated || realBroken && !generated;
+  useEffect(() => {
+    if (settledEditorial) audit.report('fallback', url, cacheKey);
+  }, [audit, settledEditorial, url, cacheKey]);
   if (useReal) {
     return (
       <div className={cn('relative h-full w-full overflow-hidden bg-surface-2', className)}>
@@ -63,6 +69,7 @@ export function AiCover({
           alt=""
           loading="lazy"
           referrerPolicy={imageReferrerPolicy(real.src!)}
+          onLoad={() => audit.report('loaded', real.src, cacheKey)}
           onError={() => setRealBroken(true)}
           className="h-full w-full object-cover"
         />
