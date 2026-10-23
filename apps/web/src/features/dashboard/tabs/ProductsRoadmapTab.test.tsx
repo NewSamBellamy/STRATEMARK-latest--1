@@ -9,6 +9,7 @@ vi.mock('@/hooks/data', () => ({ useCompany: () => ({ data: { name: 'Acme' } }),
 }) }));
 vi.mock('../useCachedTab', () => ({ useCachedDashboardTab: (_id: string, tab: string) => ({ data: state.cached[tab] }) }));
 vi.mock('@/components/media/AiCover', () => ({ AiCover: () => null }));
+vi.mock('../useProductsReportData', () => ({ useProductsReportData: () => ({ briefs: new Map(), intel: [], canResearch: false, bulk: { run: vi.fn(), pending: false, progress: null, failed: 0, remaining: 0 } }) }));
 vi.mock('./ProductPage', () => ({ ProductPage: ({ product }: { product: Product }) => <a href={product.url ?? undefined}>Official page</a> }));
 vi.mock('@/features/deepdive/DeepDive', () => ({ DigDeeper: () => null, DigDeeperMenu: () => null }));
 beforeEach(() => { state.rerun = vi.fn(); state.products = []; state.roadmap = []; state.refreshedAt = null; state.relationships = undefined; state.cached = {}; });
@@ -161,19 +162,26 @@ describe('product evidence wording in the existing view', () => {
     expect(screen.getAllByText('past due')).toHaveLength(1);
     expect(screen.queryByText('No date reported')).not.toBeInTheDocument();
   });
-  it('renders a sparse roadmap as one tagged list and a dense one as horizon columns', () => {
+  it('groups the roadmap Now / Next / Later, each with its own list, and omits an empty horizon', () => {
     state.roadmap = [
       { title: 'A', horizon: 'now', detail: 'd', date: null },
-      { title: 'B', horizon: 'next', detail: 'd', date: null },
+      { title: 'B', horizon: 'next', detail: 'd', date: '2027-02-01', sourceUrl: 'https://acme.com/plans', sourceTitle: 'Plans' },
     ];
-    const { unmount } = render(<ProductsRoadmapTab companyId="cmp" />);
-    const list = screen.getByRole('list', { name: 'Roadmap items' });
-    expect(list).toHaveTextContent('Now');
-    expect(list).toHaveTextContent('Next');
-    unmount();
-    state.roadmap = ['1', '2', '3'].map((t) => ({ title: t, horizon: 'now' as const, detail: 'd', date: null }));
+    state.products = [{ name: 'Atlas', status: 'live', description: 'd', revenueNote: '', url: null }, { name: 'Beacon', status: 'beta', description: 'd', revenueNote: '', url: null }];
+    state.roadmap.push({ title: 'Beacon 2 ships', horizon: 'later', detail: 'Plan for Beacon.', date: null });
     render(<ProductsRoadmapTab companyId="cmp" />);
-    expect(screen.queryByRole('list', { name: 'Roadmap items' })).not.toBeInTheDocument();
+    expect(screen.getByRole('list', { name: 'Now roadmap items' })).toHaveTextContent('A');
+    expect(screen.getByRole('list', { name: 'Next roadmap items' })).toHaveTextContent('2027-02-01');
+    expect(screen.getByRole('link', { name: /acme.com/ })).toHaveAttribute('href', 'https://acme.com/plans');
+    // The item that names a product links to it; an undated one says so plainly.
+    expect(screen.getByRole('button', { name: 'Product: Beacon' })).toBeInTheDocument();
+    expect(screen.getAllByText('No date stated').length).toBe(2);
+  });
+  it('says plainly that no public roadmap was found and offers to look again', () => {
+    render(<ProductsRoadmapTab companyId="cmp" />);
+    expect(screen.getByText('No public roadmap found')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Research now' }));
+    expect(state.rerun).toHaveBeenCalledTimes(1);
   });
   it('stamps nothing when no capture date was recorded', () => {
     state.roadmap = [{ title: 'Plan', horizon: 'next', detail: 'd', date: '2030' }];

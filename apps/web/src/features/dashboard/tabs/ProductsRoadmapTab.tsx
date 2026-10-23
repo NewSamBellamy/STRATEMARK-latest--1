@@ -3,7 +3,6 @@ import { formatDate } from '@/lib/format';
 import { ExternalLink } from 'lucide-react';
 import type { BusinessRelationship, Product, RoadmapItem } from '@mi/contracts';
 import { useCompany, useDashboardTab, useRerunDashboardTab } from '@/hooks/data';
-import { StoryImage } from '@/components/media/StoryMedia';
 import { QueryBoundary } from '@/components/states/QueryBoundary';
 import { HydratingPanel } from './HydratingPanel';
 import { InsightReader } from '@/components/reader/InsightReader';
@@ -15,42 +14,20 @@ import { parseOverviewSections } from '../dashboardModel';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { Paragraph } from './OverviewTab';
 import { ProductPage } from './ProductPage';
+import { ProductCard } from './ProductCard';
+import { LineupOverview } from './LineupOverview';
+import { RoadmapGroups } from './RoadmapGroups';
+import { STATUS_LABEL, STATUS_STYLE, productKey, siblingNames, type ProductStatus } from '../productsReport';
+import { useProductsReportData } from '../useProductsReportData';
 
-/** A product's lifecycle when a source states it; null renders no badge. */
-type ProductStatus = NonNullable<Product['status']>;
-
-const STATUS_STYLE: Record<ProductStatus, string> = {
-  live: 'border-emerald-300 text-emerald-700 bg-emerald-50',
-  beta: 'border-amber-300 text-amber-700 bg-amber-50',
-  sunset: 'border-slate-300 text-slate-600 bg-slate-100',
-};
-
-/**
- * Quiet horizon columns (audit: the loud tinted headers read "vibe code-y").
- * The colored DOT carries each horizon's identity; headers stay neutral.
- */
-const HORIZONS: {
-  key: RoadmapItem['horizon'];
-  label: string;
-  accent: string;
-  dot: string;
-}[] = [
-  { key: 'now', label: 'Now', accent: 'text-content border-border bg-surface-2/60', dot: 'bg-emerald-500' },
-  { key: 'next', label: 'Next', accent: 'text-content border-border bg-surface-2/60', dot: 'bg-amber-500' },
-  { key: 'later', label: 'Later', accent: 'text-muted border-border bg-surface-2/60', dot: 'bg-slate-400' },
-];
+// The date reading lives with the report model; the tab keeps exporting it for its callers and tests.
+export { isPastDue, targetEnd } from '../productsReport';
 
 const RELATIONSHIP_KINDS: { key: BusinessRelationship['kind']; label: string; dot: string }[] = [
   { key: 'customer', label: 'Customers', dot: 'bg-emerald-500' },
   { key: 'supplier', label: 'Suppliers', dot: 'bg-amber-500' },
   { key: 'partner', label: 'Partners', dot: 'bg-slate-400' },
 ];
-
-const STATUS_LABEL: Record<ProductStatus, string> = {
-  live: 'Live',
-  beta: 'Beta',
-  sunset: 'Sunset',
-};
 
 /**
  * When no product passed the strict lineup bar, the research the company
@@ -95,50 +72,6 @@ function ProductsFromResearch({ companyId }: { companyId: string }) {
       )}
     </div>
   );
-}
-
-const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-const FULL_MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
-
-/**
- * End of the period a stated target covers ("2026-03-15", "March 2026",
- * "Q3 2026", "2026 H2", "2026"), or null when the text is not a date we can
- * read with confidence. Unreadable text is never guessed at.
- */
-export function targetEnd(date: string | null | undefined): Date | null {
-  const s = (date ?? '').trim();
-  if (!s) return null;
-  let m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (m) {
-    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59);
-    // A date that rolled over (month 13, Feb 31) was not a real date.
-    return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
-  }
-  m = /^(?:Q([1-4])\s+(\d{4})|(\d{4})\s+Q([1-4]))$/i.exec(s);
-  if (m) {
-    const q = Number(m[1] ?? m[4]);
-    return new Date(Number(m[2] ?? m[3]), q * 3, 0, 23, 59, 59);
-  }
-  m = /^(?:H([12])\s+(\d{4})|(\d{4})\s+H([12]))$/i.exec(s);
-  if (m) {
-    const h = Number(m[1] ?? m[4]);
-    return new Date(Number(m[2] ?? m[3]), h * 6, 0, 23, 59, 59);
-  }
-  m = /^([A-Za-z]{3,9})\.?\s+(\d{4})$/.exec(s);
-  if (m) {
-    const word = m[1]!.toLowerCase();
-    const mi = MONTHS.findIndex((mo) => word === mo || FULL_MONTHS[MONTHS.indexOf(mo)] === word || (word === 'sept' && mo === 'sep'));
-    if (mi >= 0) return new Date(Number(m[2]), mi + 1, 0, 23, 59, 59);
-  }
-  m = /^(\d{4})$/.exec(s);
-  if (m) return new Date(Number(m[1]), 12, 0, 23, 59, 59);
-  return null;
-}
-
-/** True only when a readable stated target date is already behind us. */
-export function isPastDue(date: string | null | undefined, now: Date): boolean {
-  const end = targetEnd(date);
-  return end !== null && end.getTime() < now.getTime();
 }
 
 /** Dense one-line-per-product view: name, description, status, source. */
@@ -215,37 +148,6 @@ function ProductTable({ products, onOpen, showStatus = true }: { products: Produ
   );
 }
 
-/** The tab at a glance: how much is established, counted from the retained research only. */
-function LineupSummary({ products, roadmap, relationships, statedOn }: {
-  products: readonly Product[]; roadmap: readonly RoadmapItem[]; relationships: readonly BusinessRelationship[]; statedOn: string | null;
-}) {
-  if (products.length + roadmap.length + relationships.length === 0) return null;
-  const live = products.filter((p) => p.status === 'live').length;
-  const beta = products.filter((p) => p.status === 'beta').length;
-  const horizon = (key: RoadmapItem['horizon']) => roadmap.filter((r) => r.horizon === key).length;
-  const stats: Array<{ label: string; value: number; note: string | null }> = [
-    { label: 'Products', value: products.length, note: [live > 0 && `${live} live`, beta > 0 && `${beta} beta`].filter(Boolean).join(' · ') || null },
-    { label: 'Roadmap items', value: roadmap.length, note: roadmap.length ? `${horizon('now')} now · ${horizon('next')} next · ${horizon('later')} later` : null },
-    { label: 'Named partners', value: relationships.length, note: relationships.length ? 'customers, suppliers, partners' : null },
-  ];
-  return (
-    <section aria-label="Lineup at a glance">
-      <dl className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
-        {stats.map((stat) => (
-          <div key={stat.label} className="bg-surface px-4 py-3">
-            <dt className="text-[11px] font-medium text-muted">{stat.label}</dt>
-            <dd className="mt-1 text-2xl font-semibold tabular-nums text-content">
-              {stat.value > 0 ? stat.value : <span className="text-base font-medium text-faint">None found</span>}
-              {stat.note && <span className="mt-0.5 block text-[11px] font-normal text-faint">{stat.note}</span>}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      {statedOn && <p className="mt-1.5 text-[11px] text-faint">Researched {statedOn}. Counts include only what a source states.</p>}
-    </section>
-  );
-}
-
 export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const query = useDashboardTab(companyId, 'products_roadmap');
   const companyRecord = useCompany(companyId).data;
@@ -256,6 +158,8 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
   const [search, setSearch] = useState('');
   const [view, setView] = useState<'cards' | 'table' | null>(null);
   const rerun = useRerunDashboardTab(companyId, 'products_roadmap');
+  const reportData = useProductsReportData(companyId, query.data?.content.products ?? []);
+  const subject = { name, website: companyRecord?.websiteUrl ?? null, logoUrl: companyRecord?.logoUrl ?? null };
   return (
     <QueryBoundary query={query} loading={<HydratingPanel label="Products & Roadmap" />}>
       {(result) => {
@@ -279,9 +183,10 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
             (status === 'all' || p.status === status) &&
             matchesQuery(`${p.name} ${p.description} ${p.revenueNote}`, search),
         );
+        const roadmapCount = (p: Product) => c.roadmap.filter((r) => `${r.title} ${r.detail}`.toLowerCase().includes(p.name.toLowerCase())).length;
         return (
           <div className="space-y-8 cascade">
-            <LineupSummary products={c.products} roadmap={c.roadmap} relationships={relationships} statedOn={statedOn} />
+            <LineupOverview products={c.products} roadmap={c.roadmap} partners={relationships.length} statedOn={statedOn} data={reportData} />
 
             <section aria-label="Product lineup">
               <SectionHeader
@@ -365,76 +270,19 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                     <ProductTable products={products} onOpen={setOpenProduct} showStatus={!sharedStatus} />
                     ) : (
                     <ul className={cn('grid gap-3', products.length > 1 && 'md:grid-cols-2')}>
-                      {products.map((p) => {
-                        const hasUrl = !!p.url && /^https?:\/\//.test(p.url);
-                        return (
-                          <li
-                            key={p.name}
-                            className="panel group flex cursor-pointer flex-col overflow-hidden transition-colors hover:border-primary/40"
-                            onClick={() => setOpenProduct(p)}
-                            title="Open this product — source disclosure and research"
-                          >
-                            {hasUrl && (
-                              /* The picture the product's own official page publishes for link previews; hidden when it has none. */
-                              <StoryImage
-                                pageUrl={p.url}
-                                subject={{ name, website: companyRecord?.websiteUrl ?? null }}
-                                className="aspect-[16/9] border-b border-border"
-                                credit
-                              />
-                            )}
-                            <div className="flex flex-1 flex-col p-4">
-                              <div className="flex items-start justify-between gap-2">
-                                {/* The card opens on a click anywhere; the name is the real button for keyboards and screen readers. */}
-                                <h4 className="font-medium text-content">
-                                  <button type="button" className="text-left" onClick={(e) => { e.stopPropagation(); setOpenProduct(p); }}>{p.name}</button>
-                                </h4>
-                                {p.status && !sharedStatus && (
-                                  <span className={cn('chip shrink-0 py-0.5 text-[11px]', STATUS_STYLE[p.status])}>
-                                    {STATUS_LABEL[p.status]}
-                                  </span>
-                                )}
-                              </div>
-                              {p.description && splitSearchReport(p.description).searchReported && (
-                                <span
-                                  className="mt-1 inline-block text-[11px] text-faint"
-                                  title="Reported by Google Search; the original page was not retrieved"
-                                >
-                                  Search-reported · original not retrieved
-                                </span>
-                              )}
-                              {p.description ? (
-                                <p className="mt-1.5 line-clamp-3 text-sm text-muted">{splitSearchReport(p.description).text}</p>
-                              ) : (
-                                <p className="mt-1.5 text-sm text-faint">No description retained.</p>
-                              )}
-                              <div className="mt-auto flex items-end justify-between gap-3 pt-3">
-                                <span
-                                  className="min-w-0 text-[11px] text-muted"
-                                  title="What sources report about revenue contribution"
-                                >
-                                  {/* Said once in the section header; a repeat on every card was noise. */}
-                                  {p.revenueNote ? <span className="line-clamp-2">{p.revenueNote}</span> : null}
-                                </span>
-                                {hasUrl ? (
-                                  <a
-                                    href={p.url!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="inline-flex shrink-0 items-center gap-1 text-[11px] text-primary-ink hover:underline"
-                                  >
-                                    <ExternalLink className="h-3 w-3" />
-                                    {hostOf(p.url!) ?? 'Source'}
-                                  </a>
-                                ) : anySource ? (
-                                  <span className="shrink-0 text-[11px] text-faint">Source not recorded</span>
-                                ) : null}
-                              </div>
-                            </div>
-                          </li>
-                        );
-                      })}
+                      {products.map((p) => (
+                        <ProductCard
+                          key={p.name}
+                          product={p}
+                          brief={reportData.briefs.get(productKey(p.name)) ?? null}
+                          siblings={siblingNames(c.products, p)}
+                          company={subject}
+                          roadmapCount={roadmapCount(p)}
+                          anySource={anySource}
+                          hideStatus={!!sharedStatus}
+                          onOpen={() => setOpenProduct(p)}
+                        />
+                      ))}
                     </ul>
                     )
                   )}
@@ -448,110 +296,15 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                 count={c.roadmap.length > 0 ? c.roadmap.length : undefined}
                 description="Announced or reported plans grouped by horizon. Dates appear only when a source gave one."
               />
-              {c.roadmap.length === 0 ? (
-                <EmptyNote compact title="No source-backed roadmap retained">
-                  Research fills this from official announcements, earnings commentary and filings.
-                  Rumours and guesses are not retained.
-                </EmptyNote>
-              ) : (
-                HORIZONS.every(({ key }) => c.roadmap.filter((r) => r.horizon === key).length <= 2) ? (
-                  /* Sparse roadmap: hollow one-item columns read as empty cards, so one
-                     list carries a Now / Next / Later tag per row instead. */
-                  <ul className="panel divide-y divide-border p-0" aria-label="Roadmap items">
-                    {HORIZONS.flatMap(({ key, label, dot }) =>
-                      c.roadmap.filter((r) => r.horizon === key).map((r, i) => (
-                        <li key={`${key}-${i}`}>
-                          <button
-                            type="button"
-                            className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2/70"
-                            title="Open this roadmap item — the full gist, plus grounded research"
-                            onClick={() => setOpenRoadmap(r)}
-                          >
-                            <span className="mt-0.5 inline-flex w-16 shrink-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                              <span className={cn('h-2 w-2 rounded-full', dot)} aria-hidden />
-                              {label}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-baseline justify-between gap-2">
-                                <span className="text-sm font-medium text-content">{r.title}</span>
-                                {r.date ? (
-                                  <span className="shrink-0 text-[10px] font-semibold tabular-nums text-primary-ink">{r.date}</span>
-                                ) : null}
-                              </span>
-                              {r.detail ? <span className="block text-xs text-muted">{r.detail}</span> : null}
-                              <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-faint">
-                                {statedOn && <span>stated {statedOn}</span>}
-                                {isPastDue(r.date, new Date()) && (
-                                  <span
-                                    className="rounded border border-amber-300 bg-amber-50 px-1 text-amber-700"
-                                    title="The stated target date has passed; this research does not confirm whether it shipped."
-                                  >
-                                    past due
-                                  </span>
-                                )}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      )),
-                    )}
-                  </ul>
-                ) : (
-                <div className={cn('grid gap-3', GROUP_COLS[HORIZONS.filter(({ key }) => c.roadmap.some((r) => r.horizon === key)).length])}>
-                  {HORIZONS.map(({ key, label, dot }) => {
-                    const items = c.roadmap.filter((r) => r.horizon === key);
-                    if (items.length === 0) return null;
-                    return (
-                      <div key={key} className="panel overflow-hidden p-0">
-                        <div className="flex items-center gap-2 border-b border-border bg-surface-2/60 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-content">
-                          <span className={cn('h-2 w-2 rounded-full', dot)} />
-                          {label}
-                          <span className="ml-1.5 font-normal normal-case tabular-nums text-muted">{items.length}</span>
-                        </div>
-                        <ul className="px-4 py-3">
-                          {items.map((r, i) => (
-                            <li key={i} className="relative pb-3 pl-5 last:pb-0">
-                              {/* Timeline spine: dot per item, line connecting them. */}
-                              <span className={cn('absolute left-0 top-1.5 h-2 w-2 rounded-full', dot)} />
-                              {i < items.length - 1 && (
-                                <span className="absolute bottom-0 left-[3.5px] top-4 w-px bg-border" />
-                              )}
-                              <button
-                                type="button"
-                                className="w-full rounded-md text-left transition-colors hover:bg-surface-2/70"
-                                title="Open this roadmap item — the full gist, plus grounded research"
-                                onClick={() => setOpenRoadmap(r)}
-                              >
-                                <div className="flex items-baseline justify-between gap-2">
-                                  <span className="text-sm font-medium text-content">{r.title}</span>
-                                  {r.date ? (
-                                    <span className="shrink-0 text-[10px] font-semibold tabular-nums text-primary-ink">
-                                      {r.date}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="text-xs text-muted">{r.detail}</div>
-                                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px] text-faint">
-                                  {statedOn && <span>stated {statedOn}</span>}
-                                  {isPastDue(r.date, new Date()) && (
-                                    <span
-                                      className="rounded border border-amber-300 bg-amber-50 px-1 text-amber-700"
-                                      title="The stated target date has passed; this research does not confirm whether it shipped."
-                                    >
-                                      past due
-                                    </span>
-                                  )}
-                                </div>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    );
-                  })}
-                </div>
-                )
-              )}
+              <RoadmapGroups
+                roadmap={c.roadmap}
+                products={c.products}
+                statedOn={statedOn}
+                onOpenItem={setOpenRoadmap}
+                onOpenProduct={setOpenProduct}
+                onResearch={() => rerun.mutate()}
+                researching={rerun.isPending}
+              />
             </section>
 
             {relationships.length > 0 && (
@@ -606,6 +359,7 @@ export function ProductsRoadmapTab({ companyId }: { companyId: string }) {
                 companyId={companyId}
                 company={{ name, logoUrl: companyRecord?.logoUrl ?? null, websiteUrl: companyRecord?.websiteUrl ?? null }}
                 roadmap={c.roadmap}
+                siblings={siblingNames(c.products, openProduct)}
                 onClose={() => setOpenProduct(null)}
               />
             )}
