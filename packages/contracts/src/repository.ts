@@ -1096,7 +1096,9 @@ export interface MarketIntelRepository {
   peekDashboardTab?<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null>;
   /**
    * Research one product for its own page: key metrics, overview, how it is
-   * received and its growth timeline, every figure sourced. Stores the result.
+   * received, its growth timeline, product-specific news and YouTube videos, every figure
+   * sourced. Stores the result. A stored brief is returned free; only its news/videos re-run
+   * when missing or stale (3 and 14 days). `force` re-runs everything.
    * Spends research credits, so only on request. OPTIONAL — live-research engines.
    */
   researchProductBrief?(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief>;

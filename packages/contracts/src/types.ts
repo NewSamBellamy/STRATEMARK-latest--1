@@ -15,6 +15,8 @@ import type {
   companyVideoSchema,
   historyVideoSchema,
   productBriefSchema,
+  productNewsItemSchema,
+  productVideoSchema,
   liveIntelContentSchema,
   liveIntelItemSchema,
   liveLandingContentSchema,
@@ -60,6 +62,8 @@ export type LiveIntelContent = z.infer<typeof liveIntelContentSchema>;
 export type CompanyVideo = z.infer<typeof companyVideoSchema>;
 export type HistoryVideo = z.infer<typeof historyVideoSchema>;
 export type ProductBrief = z.infer<typeof productBriefSchema>;
+export type ProductNewsItem = z.infer<typeof productNewsItemSchema>;
+export type ProductVideo = z.infer<typeof productVideoSchema>;
 export type OrgNode = z.infer<typeof orgNodeSchema>;
 export type TeamOrgContent = z.infer<typeof teamOrgContentSchema>;
 export type LiveLandingContent = z.infer<typeof liveLandingContentSchema>;

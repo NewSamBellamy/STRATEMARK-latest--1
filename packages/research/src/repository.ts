@@ -167,6 +167,7 @@ import { DashboardWarmup, warmupConcurrency, warmupTabsInParallel, type CachedTa
 import { foundedFromHistory, foundedFromWebsite, foundedFromWikidata, wikidataFoundedYear, type JsonFetcher } from './founded-year';
 import { findHistoryVideo, isStoredHistoryVideo } from './history-video';
 import { productKey, researchProductBrief } from './product-brief';
+import { extrasHaveContent, extrasOnlyBrief, mergeExtras, researchProductExtras, staleExtras } from './product-research';
 import { researchSignalBrief as buildSignalBrief } from './signal-brief';
 import { readCompanyLink } from './link-reader';
 
@@ -3306,7 +3307,8 @@ export class GeminiRepository implements MarketIntelRepository {
 
   /**
    * "Research this product" (product-brief.ts): at most three grounded searches
-   * and one structure call, billed under label "product_brief". The brief is
+   * and one structure call, billed under label "product_brief", plus product news and videos (product-research.ts; free
+   * search lanes, at most one more structure call). The brief is
    * stored on `snap.productBriefs` and reused: a call without `force` returns
    * the stored brief and spends nothing. A failed or empty forced run keeps the
    * old brief. Runs for the same product are shared, never doubled.
@@ -3318,11 +3320,11 @@ export class GeminiRepository implements MarketIntelRepository {
     const flight = `${input.companyId}|${key}`;
     const running = this.productBriefRuns.get(flight);
     if (running) return running;
-    if (!input.force) {
-      const stored = this.storedProductBrief(input.companyId, key);
-      if (stored) return Promise.resolve(stored);
-    }
-    const run = this.runProductBrief(input.companyId, name, key).finally(() => {
+    // Stored and fresh: nothing is spent. Stored but its news/videos are missing or past their cadence: only those re-run.
+    const stored = input.force ? null : this.storedProductBrief(input.companyId, key);
+    const stale = stored ? staleExtras(stored, Date.now(), this.videoJson !== undefined) : null;
+    if (stored && !stale!.news && !stale!.videos) return Promise.resolve(stored);
+    const run = this.runProductBrief(input.companyId, name, key, stored ? { base: stored, parts: stale! } : null).finally(() => {
       if (this.productBriefRuns.get(flight) === run) this.productBriefRuns.delete(flight);
     });
     this.productBriefRuns.set(flight, run);
@@ -3375,13 +3377,38 @@ export class GeminiRepository implements MarketIntelRepository {
     return parsed?.success && parsed.data.companyId === companyId ? parsed.data : null;
   }
 
-  private async runProductBrief(companyId: string, productName: string, key: string): Promise<ProductBrief> {
+  private async runProductBrief(companyId: string, productName: string, key: string, refresh: { base: ProductBrief; parts: { news: boolean; videos: boolean } } | null = null): Promise<ProductBrief> {
     const company = this.snap.companies.find((c) => c.id === companyId);
     if (!company) throw new Error('Company not found for product research.');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PRODUCT_BRIEF_DEADLINE_MS);
     try {
-      const brief = await researchProductBrief({ company, productName, client: this.client, signal: controller.signal });
+      const siblings = ((this.snap.dashboards[companyId]?.products_roadmap?.content as { products?: Array<{ name?: unknown }> } | undefined)?.products ?? [])
+        .map((p) => p.name).filter((n): n is string => typeof n === 'string');
+      const extrasFor = (parts: { news: boolean; videos: boolean }) => researchProductExtras({
+        company, productName, siblings, client: this.client, fetchJson: this.videoJson, parts, signal: controller.signal,
+        newsLanes: [this.newsSearch?.() ?? null, this.webSearch?.() ?? null], videoLanes: [this.webSearch?.() ?? null],
+      });
+      let brief: ProductBrief;
+      if (refresh) {
+        brief = mergeExtras(refresh.base, await extrasFor(refresh.parts));
+      } else {
+        // The grounded brief, news and videos run together; a failed or empty extra never costs the brief, and an empty brief survives on news or videos.
+        const [grounded, extras] = await Promise.allSettled([
+          researchProductBrief({ company, productName, client: this.client, signal: controller.signal }),
+          extrasFor({ news: true, videos: this.videoJson !== undefined }),
+        ]);
+        const found = extras.status === 'fulfilled' ? extras.value : { citations: [] };
+        if (grounded.status === 'fulfilled') brief = mergeExtras(grounded.value, found);
+        else if (extrasHaveContent(found)) brief = extrasOnlyBrief({ companyId, productName, generatedAt: new Date().toISOString() }, found);
+        else throw grounded.reason;
+        // A forced run whose news or video search could not run keeps what was stored.
+        const prior = this.storedProductBrief(companyId, key);
+        if (prior) {
+          brief = { ...brief, ...(brief.news === undefined && prior.news ? { news: prior.news, newsCheckedAt: prior.newsCheckedAt } : {}),
+            ...(brief.videos === undefined && prior.videos ? { videos: prior.videos, videosCheckedAt: prior.videosCheckedAt } : {}) };
+        }
+      }
       // Re-read: the company may have been deleted while the search ran.
       if (!this.snap.companies.some((c) => c.id === companyId)) throw new Error('Company not found for product research.');
       const byCompany = (this.snap.productBriefs ??= {});

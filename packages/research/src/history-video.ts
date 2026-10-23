@@ -100,6 +100,9 @@ export function youTubeIdsInText(text: string): string[] {
 
 const SPAM = /\b(?:give-?aways?|free\s+robux|price\s+predictions?|how\s+to\s+get\s+rich|get\s+rich|react(?:ion|s|ing)?|airdrops?)\b/i;
 
+/** Giveaway, prediction and reaction wording in a video title. */
+export const isSpamVideoTitle = (title: string): boolean => SPAM.test(title);
+
 export interface VideoCandidateFacts { title: string; channel: string }
 export interface PreFilterContext { name: string; websiteUrl?: string | null; aliases?: readonly string[] }
 export interface PreFilterVerdict { ok: boolean; reason: string | null; /** The channel is the company itself. */ preferred: boolean }
