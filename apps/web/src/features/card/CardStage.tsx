@@ -3,6 +3,7 @@ import { RotateCcw } from 'lucide-react';
 import type { CardWithCompany } from '@mi/contracts';
 import { CardBack } from './CardBack';
 import { CollectibleCard } from './CollectibleCard';
+import type { CardSkin } from './card-skin';
 import type { CardView } from './card-view';
 
 /** Degrees of spin per pixel dragged. */
@@ -26,7 +27,7 @@ function reducedMotion(): boolean {
   return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
 }
 
-export function CardStage({ data, view }: { data: CardWithCompany; view: CardView }) {
+export function CardStage({ data, view, skin }: { data: CardWithCompany; view: CardView; skin?: CardSkin }) {
   const card = useRef<HTMLDivElement>(null);
   const spinner = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; start: number; moved: number } | null>(null);
@@ -93,7 +94,7 @@ export function CardStage({ data, view }: { data: CardWithCompany; view: CardVie
             data-face={back ? 'back' : 'front'}
           >
             <div className="card-stage__face" aria-hidden={back || undefined}>
-              <CollectibleCard data={data} view={view} />
+              <CollectibleCard data={data} view={view} skin={skin} />
             </div>
             <div className="card-stage__face card-stage__face--back" aria-hidden={!back || undefined}>
               <CardBack />

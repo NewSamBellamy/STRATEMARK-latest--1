@@ -5,6 +5,7 @@ import { buildCardView, type CardView } from './card-view';
 import { faceFooter } from './faceFooter';
 import { Logo } from './Logo';
 import { useSignalHero } from './useSignalHero';
+import { DEFAULT_CARD_SKIN, type CardSkin } from './card-skin';
 
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
@@ -23,12 +24,15 @@ export function CollectibleCard({
   logoRetryNonce,
   logoUrlOverride,
   onLogoAvailabilityChange,
+  skin = DEFAULT_CARD_SKIN,
 }: {
   data: CardWithCompany;
   view?: CardView;
   logoRetryNonce?: number;
   logoUrlOverride?: string | null;
   onLogoAvailabilityChange?: (available: boolean) => void;
+  /** Frame skin for where the card lives: deck (split, default), Saved (embossed), Today (acrylic). */
+  skin?: CardSkin;
 }) {
   const artwork = DEFAULT_CARD_ART[data.card.cardType];
   const companyKey = data.company?.id ?? view.title;
@@ -77,7 +81,7 @@ export function CollectibleCard({
   return (
     <div
       ref={heroRef}
-      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''} ${frame ? 'collectible--brand' : ''}`}
+      className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''} ${frame ? 'collectible--brand' : ''} collectible--skin-${skin}`}
       style={{ '--card-accent': accent, '--card-highlight': frame ? frame['--card-c2'] : highlight, ...frame } as CSSProperties}
       data-brand-colors={logoPalette.length > 0 ? logoPalette.join(' ') : framePrimary ? [framePrimary, frameSecondary].filter(Boolean).join(' ') : undefined}
       data-testid="collectible-card-front"

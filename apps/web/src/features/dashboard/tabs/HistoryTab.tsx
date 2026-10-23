@@ -297,7 +297,7 @@ export function HistoryTab({ companyId }: { companyId: string }) {
                     body={opened.detail || null}
                     companyId={companyId}
                     companyName={name}
-                    researchSeed={`Milestone in ${name}'s history: "${opened.title}" (${opened.date}). Tell the whole story of this event with grounded sources: what led to it, what exactly happened, who was involved, and what it changed for the company.`}
+                    researchSeed={`Milestone in ${name}'s history: "${opened.title}"${opened.date ? ` (${opened.date})` : ''}. Tell the whole story of this event with grounded sources: what led to it, what exactly happened, who was involved, and what it changed for the company.`}
                   />
                 )}
               </section>

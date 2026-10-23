@@ -94,7 +94,7 @@ export function TodayCompanyView({ companyId, since = null }: { companyId: strin
     <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
       <aside aria-label={`${name} card`} className="lg:sticky lg:top-4">
         {card ? (
-          <CardStage data={card} view={buildCardView(card)} />
+          <CardStage data={card} view={buildCardView(card)} skin="acrylic" />
         ) : (
           <div className="panel flex items-center gap-3 p-5">
             <Logo name={name} website={company?.websiteUrl ?? null} logoUrl={company?.logoUrl ?? null} className="h-12 w-12 border border-border" />

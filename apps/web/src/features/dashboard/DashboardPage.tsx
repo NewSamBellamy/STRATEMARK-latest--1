@@ -23,6 +23,7 @@ import { ExportMenu } from '@/features/export/ExportMenu';
 import { useAvailableTabs, useReadOnly } from '@/lib/readOnly';
 import { DigDeeper, useDeepDive } from '@/features/deepdive/DeepDive';
 import { TabFreshness } from './TabFreshness';
+import { headerLine } from './headerLine';
 import { useDashboardAssembly, type Assembly } from './useDashboardAssembly';
 import { foundedYear, reportsToSec, secFilingsUrl } from './snapshot';
 import { useCachedDashboardTab } from './useCachedTab';
@@ -511,7 +512,7 @@ export default function DashboardPage() {
           <>
             {/* Compact header: name and its one-line description, the facts in one quiet row,
                 and the actions (ask, share, chats) on the right. */}
-            <header className="mb-4 flex flex-wrap items-start gap-x-4 gap-y-3 lg:grid lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-y-0">
+            <header className="mb-4 flex flex-wrap items-start gap-x-4 gap-y-3 lg:grid lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-y-2.5">
               <Logo
                 name={c.name}
                 website={c.websiteUrl}
@@ -540,7 +541,7 @@ export default function DashboardPage() {
                 <div className="order-1 basis-full lg:order-none lg:col-span-2 lg:col-start-2 lg:row-start-2">
                 {/* One line; the full description is the Summary's first sentence below. */}
                 {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && (
-                  <p className="mt-0.5 line-clamp-2 max-w-3xl text-[13px] leading-snug text-muted lg:line-clamp-1" title={headerSubtitle}>{headerSubtitle}</p>
+                  <p className="max-w-3xl truncate text-[13px] leading-snug text-muted" title={headerSubtitle}>{headerLine(headerSubtitle)}</p>
                 )}
                 <KeyFacts
                   hq={c.hqLocation}

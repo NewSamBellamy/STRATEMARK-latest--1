@@ -78,6 +78,40 @@ describe('chatEvidenceFromAnswer', () => {
     expect(kept.map((e) => e.companyId)).toEqual(['cmp_l']);
   });
 
+  describe('a chat about a person or product', () => {
+    const solo = [companies[0]!];
+    const person = 'Jane Doe joined as chief technology officer in 2019 after leading research at a rival lab.';
+    const other = 'Robert Roe founded a different startup in 2021.';
+    const g = grounded([person, other], { [person]: [ACME_SRC], [other]: [BETA_SRC] });
+    const keep = (focus: string | null, roster = solo) =>
+      chatEvidenceFromAnswer({ threadId: 't', answerText: g.text, grounding: g.grounding, companies: roster, focus });
+
+    it('keeps a sourced sentence that names the subject but not the company, for the one company in scope', () => {
+      const kept = keep('Jane Doe');
+      expect(kept.map((e) => e.text)).toEqual([person]);
+      expect(kept[0]).toMatchObject({ companyId: 'cmp_a', topic: 'chat:t' });
+      expect(kept[0]!.citations[0]!.url).toBe(ACME_SRC.url);
+    });
+
+    it('matches on the surname too, but never on a short or missing subject', () => {
+      const surname = 'Whitfield became chief financial officer in 2022.';
+      const s = grounded([surname], { [surname]: [ACME_SRC] });
+      expect(chatEvidenceFromAnswer({ threadId: 't', answerText: s.text, grounding: s.grounding, companies: solo, focus: 'Jane Whitfield' }).map((e) => e.text)).toEqual([surname]);
+      expect(keep('Jo')).toEqual([]);
+      expect(keep(null)).toEqual([]);
+    });
+
+    it('keeps nothing when more than one company is in scope (it could belong to either)', () => {
+      expect(keep('Jane Doe', companies)).toEqual([]);
+    });
+
+    it('still drops hedged sentences about the subject', () => {
+      const hedged = 'Jane Doe may be planning to leave the company next year.';
+      const h = grounded([hedged], { [hedged]: [ACME_SRC] });
+      expect(chatEvidenceFromAnswer({ threadId: 't', answerText: h.text, grounding: h.grounding, companies: solo, focus: 'Jane Doe' })).toEqual([]);
+    });
+  });
+
   it('a clause must cover most of a longer sentence to attribute it', () => {
     const long = 'Acme opened a plant in Austin and also its rival went bankrupt last winter after a failed merger.';
     const g = grounded([long], { 'Acme opened a plant in Austin': [ACME_SRC] });

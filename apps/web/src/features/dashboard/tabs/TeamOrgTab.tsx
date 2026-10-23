@@ -16,15 +16,11 @@ import { cn } from '@/lib/cn';
 import { useCachedDashboardTab } from '../useCachedTab';
 import { EmptyNote, SearchBox, SectionHeader, SourceLink } from './TabKit';
 import { COLUMN_LABEL, COLUMN_ORDER, columnOf, recentMove, type ColumnKey } from './orgRank';
-import { footnoteMark, moveNote, reported, statLines } from './personFacts';
+import { footnoteMark, moveNote, statLines } from './personFacts';
 import { boardOnly, buildOrgTree, filterOrgTree, matchesQuery, type OrgTreeNode } from './tabHelpers';
+import { personAskSeed } from '@/features/deepdive/askSeed';
 
-const UNKNOWN = 'Unknown';
 const LIST_PAGE = 40;
-
-function reportedValue(value: string | null | undefined): string {
-  return value?.trim() || UNKNOWN;
-}
 
 /** One person in the list: portrait, name, role, the lines research found, collapse toggle. */
 function OrgRow({
@@ -446,19 +442,18 @@ export function TeamOrgTab({ companyId }: { companyId: string }) {
                     onSelect={setSelectedPersonId}
                     company={profileCompany}
                     onAsk={(person) => {
-                      const pinnedContext = [
-                        `Name: ${person.name}`,
-                        `Role: ${person.role}`,
-                        `Company: ${name}`,
-                        `Tenure: ${reportedValue(reported(person.tenure))}`,
-                        `Prior company: ${reportedValue(reported(person.priorCompany))}`,
-                        `Notable project: ${reportedValue(reported(person.notableProject))}`,
-                        `Reported background: ${reportedValue(person.bio)}`,
-                      ].join('\n');
                       chat(
                         { kind: 'datapoint', deckId: null, companyId, subject: person.name },
                         {
-                          seed: `Research ${person.name} at ${name}. Verify the pinned dashboard context below with grounded, current sources. Expand their background, track record, relevant projects, and any meaningful influence on the company. Keep unknowns explicit and distinguish sourced facts from inference.\n\nPinned dashboard context:\n${pinnedContext}`,
+                          seed: personAskSeed({
+                            name: person.name,
+                            role: person.role,
+                            company: name === 'this company' ? null : name,
+                            tenure: person.tenure,
+                            priorCompany: person.priorCompany,
+                            notableProject: person.notableProject,
+                            bio: person.bio,
+                          }),
                         },
                       );
                       setSelectedPersonId(null);
