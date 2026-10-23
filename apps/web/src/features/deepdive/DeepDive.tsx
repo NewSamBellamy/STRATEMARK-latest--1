@@ -413,6 +413,9 @@ export function DeepDiveProviderWithPanel({ children }: { children: ReactNode })
       setThread(t);
       void qc.invalidateQueries({ queryKey: ['researchThreads'] });
       void qc.invalidateQueries({ queryKey: ['cardMemory'] });
+      // What the answer's search found is saved against the company: let its open dashboard read it now.
+      const learnedFor = t.scope.companyId ?? forScope?.companyId;
+      if (learnedFor) void qc.invalidateQueries({ queryKey: ['dashboard', learnedFor] });
     } catch (e) {
       setError(chatErrorMessage(e instanceof Error ? e.message : String(e), hasKey));
       setFailed({ question, scope: forScope, threadId });

@@ -94,7 +94,25 @@ export interface ChatEvidenceInput {
   cardIdFor?: (companyId: string) => string | undefined;
   /** The searches the answer ran, kept on each record. */
   queries?: readonly string[];
+  /**
+   * What the chat is about when it is not a company (a person, a product). A person's facts rarely name the company
+   * ("Jane Doe joined in 2019 as CTO"), so with exactly one company in the roster a sentence naming this subject is
+   * kept for that company instead of being dropped.
+   */
+  focus?: string | null;
   now?: Date;
+}
+
+const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** True when the sentence names the subject: the whole name, or a surname of four letters or more when the subject is a full name. */
+export function mentionsSubject(sentence: string, subject: string | null | undefined): boolean {
+  const name = subject?.replace(/\s+/g, ' ').trim();
+  if (!name || name.length < 4) return false;
+  if (new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, 'iu').test(sentence)) return true;
+  const parts = name.split(' ');
+  const surname = parts.length >= 2 ? parts[parts.length - 1]! : '';
+  return surname.length >= 4 && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(surname)}(?![\\p{L}\\p{N}])`, 'u').test(sentence);
 }
 
 /**
@@ -107,6 +125,8 @@ export function chatEvidenceFromAnswer(input: ChatEvidenceInput): ResearchEviden
   const capturedAt = (input.now ?? new Date()).toISOString();
   return attributedSentences(grounding).flatMap((sentence) => {
     const named = companiesNamed(sentence.text, input.companies);
+    // A sentence about the chat's subject that names no company belongs to the one company in scope.
+    if (named.length === 0 && input.companies.length === 1 && mentionsSubject(sentence.text, input.focus)) named.push(input.companies[0]!);
     if (named.length !== 1) return [];
     const company = named[0]!;
     const cardId = input.cardIdFor?.(company.id);

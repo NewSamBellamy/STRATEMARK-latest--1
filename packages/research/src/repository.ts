@@ -7061,7 +7061,7 @@ ${references}`
       },
     );
     // Keep what the search itself attributed, so this research is not wasted. Never fails the answer.
-    const kept = keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g);
+    const kept = keepFreshEvidence(this.snap, thread, evidenceCompanyIds, g, thread.scope.kind === 'datapoint' ? thread.scope.subject : null);
 
     const mentionedUrls = new Set((g.text.match(/https?:\/\/[^\s<>"'\]]+/g) ?? [])
       .flatMap(url => [url, url.replace(/[),.;:!?]+$/, '')]));
@@ -7081,10 +7081,17 @@ ${references}`
     await this.persist();
     // What the answer's search found now sits on each card it was about: tell open views so they re-read it.
     const keptCardIds = [...new Set(kept.flatMap((record) => (record.cardId ? [record.cardId] : [])))];
-    const deckId = thread.scope.deckId ?? this.snap.cards.find((card) => keptCardIds.includes(card.id))?.deckId;
+    // A person or product chat has no card in scope; name the companies so open dashboards re-read what was learned.
+    const keptCompanyIds = [...new Set(kept.flatMap((record) => (record.companyId ? [record.companyId] : [])))];
+    const deckId = thread.scope.deckId
+      ?? this.snap.cards.find((card) => keptCardIds.includes(card.id))?.deckId
+      ?? this.snap.cards.find((card) => card.companyId != null && keptCompanyIds.includes(card.companyId))?.deckId;
     const marketId = this.snap.decks.find((deck) => deck.id === deckId)?.marketId;
-    if (deckId && marketId && keptCardIds.length > 0) {
-      this.emit({ marketId, deckId, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: keptCardIds, prunedCardIds: [] });
+    if (deckId && marketId && (keptCardIds.length > 0 || keptCompanyIds.length > 0)) {
+      this.emit({
+        marketId, deckId, refreshedAt: new Date().toISOString(), addedCardIds: [], updatedCardIds: keptCardIds, prunedCardIds: [],
+        ...(keptCompanyIds.length > 0 ? { companyIds: keptCompanyIds } : {}),
+      });
     }
     return structuredClone(thread);
   }
