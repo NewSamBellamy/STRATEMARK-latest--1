@@ -8,6 +8,7 @@ import { useSaveCard, useSavedCards, useUnsaveCard } from '@/hooks/data';
 import { useDashboardHydrating } from '@/lib/living/useDashboardWarm';
 import { cn } from '@/lib/cn';
 import { CollectibleCard } from './CollectibleCard';
+import type { CardSkin } from './card-skin';
 import { buildCardView } from './card-view';
 import { followPointer, settlePointer } from './pointerSheen';
 
@@ -19,10 +20,12 @@ export interface GameCardProps {
   onShare?: () => void;
   hideActions?: boolean;
   className?: string;
+  /** Frame skin for where the card lives (deck split by default, Saved embossed, Today acrylic). */
+  skin?: CardSkin;
   /** The card's OVR against its deck. Omit and it is rated on its own (tier only). */
 }
 
-export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, className }: GameCardProps) {
+export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, className, skin }: GameCardProps) {
   // The view re-runs every slot's citation gates; recompute only when the card
   // data itself changes, not on every grid re-render.
   const view = useMemo(() => buildCardView(data), [data]);
@@ -75,9 +78,9 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
     {onOpen ? <button type="button" className="card-sleeve__open" onClick={onOpen}
       onPointerMove={followPointer} onPointerLeave={settlePointer}
       aria-label={`${view.title} — ${view.type} card`}>
-      <CollectibleCard data={data} view={view} logoRetryNonce={logoRetryNonce}
+      <CollectibleCard data={data} view={view} skin={skin} logoRetryNonce={logoRetryNonce}
         logoUrlOverride={logoUrlOverride} onLogoAvailabilityChange={onLogoAvailabilityChange} />
-    </button> : <CollectibleCard data={data} view={view} logoRetryNonce={logoRetryNonce}
+    </button> : <CollectibleCard data={data} view={view} skin={skin} logoRetryNonce={logoRetryNonce}
       logoUrlOverride={logoUrlOverride} onLogoAvailabilityChange={onLogoAvailabilityChange} />}
     {!hideActions && <div className="card-sleeve__actions">
       {onOpen

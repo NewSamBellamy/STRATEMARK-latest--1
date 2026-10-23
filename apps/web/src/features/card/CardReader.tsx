@@ -19,6 +19,7 @@ import { DropInResearch } from './DropInResearch';
 import { cardAskSeed } from '@/features/deepdive/askSeed';
 import { SaveCardButton } from './GameCard';
 import { SignalFinding } from './SignalFinding';
+import type { CardSkin } from './card-skin';
 import { SignalBriefBody, sourcedPoints, useSignalBrief } from './SignalBriefView';
 import { buildCardView, sourceUrl } from './card-view';
 import { buildCompanySummary } from './companySummary';
@@ -35,6 +36,8 @@ type Props = {
   onNextLane?: () => void;
   /** The control that should regain focus when the reader closes on this card. */
   returnFocusTo?: (cardId: string) => HTMLElement | null;
+  /** Frame skin of the card shown, matching the grid it was opened from. */
+  skin?: CardSkin;
 };
 
 const pendingCompanySnapshot = 'No source-backed company snapshot is ready yet.';
@@ -82,7 +85,7 @@ function browseWithArrows(onPrevious?: () => void, onNext?: () => void) {
 }
 
 function CardReaderBody({ data, open, onOpenChange, marketId,
-  deckView, position, total, onPrevious, onNext, onNextLane, onRestoreFocus }: Omit<Props, 'data' | 'returnFocusTo'> & {
+  deckView, position, total, onPrevious, onNext, onNextLane, onRestoreFocus, skin }: Omit<Props, 'data' | 'returnFocusTo'> & {
   data: CardWithCompany; onRestoreFocus: (event: Event, cardId: string) => void;
 }) {
   const { card, company } = data;
@@ -132,7 +135,7 @@ function CardReaderBody({ data, open, onOpenChange, marketId,
         A concise research summary with sourced figures. Open the full dashboard for deeper evidence and analysis.
       </DialogDescription>
       <div className="card-inspector__layout">
-        <CardStage data={data} view={view} />
+        <CardStage data={data} view={view} skin={skin} />
         <div className="card-inspector__detail">
           <div className="card-inspector__scroll">
           <div className="flex items-center justify-between gap-3 pr-8">
