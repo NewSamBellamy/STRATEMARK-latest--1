@@ -23,12 +23,14 @@ import type { LlmClient } from './types';
 import { REPORT_TABS, gatherReportInputs, type ReportInputs } from './living-report-inputs';
 import { buildStoredDataReport, composeCompanyReport, isReportStale, type ReportFallbackReason } from './living-report';
 
+type ReportCompany = Pick<Company, 'id' | 'name' | 'oneLiner' | 'websiteUrl' | 'hqLocation' | 'founded'>;
+
 export interface ReportHost {
-  company(companyId: string): Pick<Company, 'id' | 'name' | 'oneLiner' | 'websiteUrl' | 'hqLocation' | 'founded'> | null;
+  company(companyId: string): ReportCompany | null | Promise<ReportCompany | null>;
   /** A stored tab as the dashboard shows it, or null; never researches. */
   tab(companyId: string, tab: DashboardTab): Promise<{ content: unknown; lastRefreshedAt?: string | null } | null>;
   metrics(companyId: string): Promise<CompanyMetric[]>;
-  evidence(companyId: string): ResearchEvidence[];
+  evidence(companyId: string): ResearchEvidence[] | Promise<ResearchEvidence[]>;
   /** The report kept for this company, unvalidated. */
   kept(companyId: string): unknown;
   keep(companyId: string, report: CompanyReport): Promise<void>;
@@ -44,14 +46,14 @@ const NOTICES: Record<ReportFallbackReason, string> = {
 };
 
 export async function reportInputsFor(host: ReportHost, companyId: string): Promise<ReportInputs | null> {
-  const company = host.company(companyId);
+  const company = await host.company(companyId);
   if (!company) return null;
   const tabs: Parameters<typeof gatherReportInputs>[0]['tabs'] = {};
   for (const tab of REPORT_TABS) {
     const stored = await host.tab(companyId, tab).catch(() => null);
     if (stored) tabs[tab] = stored;
   }
-  return gatherReportInputs({ company, tabs, metrics: await host.metrics(companyId).catch(() => []), evidence: host.evidence(companyId) });
+  return gatherReportInputs({ company, tabs, metrics: await host.metrics(companyId).catch(() => []), evidence: await Promise.resolve(host.evidence(companyId)).catch(() => []) });
 }
 
 function keptReport(host: ReportHost, companyId: string): CompanyReport | null {
