@@ -14,7 +14,7 @@ import { z } from 'zod';
 import { usableCitations, type Citation, type Company, type CompanyVideo, type LiveIntelContent, type LiveIntelItem } from '@mi/contracts';
 import { companyAliases, mentionsCompany } from './company-aliases';
 import type { OriginalSourceReceipt } from './original-source';
-import { previewFromHtml } from './page-preview';
+import { previewDetailFromHtml } from './page-preview';
 import { GROUNDED_SYSTEM, STRUCTURE_SYSTEM } from './prompts';
 import type { LlmClient } from './types';
 import type { WebSearchFn, WebSearchResult } from './web-search';
@@ -129,7 +129,7 @@ async function readPreview(readPage: PageReader, url: string): Promise<ReadPage 
   if (!receipt || receipt.status !== 'retrieved' || !receipt.text) return null;
   const finalUrl = receipt.finalUrl ?? url;
   if (!/^https:\/\//i.test(finalUrl) || isRedirect(finalUrl)) return null;
-  const preview = previewFromHtml(receipt.text, finalUrl);
+  const preview = previewDetailFromHtml(receipt.text, finalUrl);
   const htmlTitle = /<title[^>]*>([^<]{3,300})<\/title>/i.exec(receipt.text.slice(0, 200_000))?.[1]?.trim() ?? null;
   return { finalUrl, title: preview.title ?? htmlTitle, image: preview.image, site: preview.site };
 }
@@ -307,12 +307,19 @@ export function mergeLiveIntel(companyId: string, lists: LiveIntelItem[][]): Liv
 }
 
 const ENOUGH_FEED_STORIES = 5;
-const LEAD_PICTURES = 6;
+// A picture costs one page read (no model call), so each of the first twenty stories gets its own, saved with the story.
+const LEAD_PICTURES = 20;
+const PICTURE_READS_AT_ONCE = 8;
+/** Social and forum pages serve walls to a server read and carry no story picture; reading them only burns time. */
+const NO_PICTURE_HOSTS = /(?:^|\.)(?:reddit\.com|redd\.it|x\.com|twitter\.com|facebook\.com|instagram\.com|linkedin\.com|tiktok\.com)$/i;
+export const worthReadingForPicture = (url: string): boolean => {
+  try { return !NO_PICTURE_HOSTS.test(new URL(url).hostname); } catch { return false; }
+};
 
 /** Read the publisher's preview picture for the first `count` stories lacking one. */
 export async function withPictures(readPage: PageReader, items: LiveIntelItem[], count: number): Promise<LiveIntelItem[]> {
-  const targets = items.slice(0, count).filter((i) => !i.imageUrl && /^https:\/\//i.test(i.url) && !isRedirect(i.url));
-  const found = new Map(await mapLimit(targets, 6, async (i) => [i.id, await readPreview(readPage, i.url)] as const));
+  const targets = items.slice(0, count).filter((i) => !i.imageUrl && /^https:\/\//i.test(i.url) && !isRedirect(i.url) && worthReadingForPicture(i.url));
+  const found = new Map(await mapLimit(targets, PICTURE_READS_AT_ONCE, async (i) => [i.id, await readPreview(readPage, i.url)] as const));
   return items.map((i) => {
     const page = found.get(i.id);
     return page?.image ? { ...i, imageUrl: page.image, publisher: i.publisher ?? page.site } : i;

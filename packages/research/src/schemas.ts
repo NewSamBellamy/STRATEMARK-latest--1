@@ -390,34 +390,66 @@ export const briefingOutSchema = z.preprocess(
   }),
 );
 
-/**
- * Output of the site audit pass (auditSite): a CRO/UX teardown structured for
- * the visual report. Scores clamp engine-side; permissive defaults keep a
- * partial answer rendering honestly instead of crashing.
- */
-const auditFindingSchema = z.object({
-  title: z.string().default(''),
-  detail: z.string().default(''),
-});
+const AUDIT_AREAS = [
+  'value_proposition', 'messaging', 'cta', 'trust', 'design', 'seo', 'friction', 'mobile_performance', 'accessibility',
+] as const;
 
-export const siteAuditOutSchema = z.object({
-  scores: z
+/**
+ * Evidence-based site audit (auditSite v2): per-category findings that each
+ * carry a verbatim quote, prioritised fixes and test-first hypotheses. The
+ * deterministic gate in site-audit-gate.ts decides what survives; permissive
+ * defaults here keep a partial answer parseable so the gate can judge it.
+ */
+export const siteAuditV2OutSchema = z.object({
+  criteria: z
     .array(
       z.object({
-        area: z.enum(['value_proposition', 'messaging', 'cta', 'trust', 'design', 'seo']),
-        score: z.number().default(5),
+        area: z.enum(AUDIT_AREAS),
+        score: z.number().nullable().default(null),
+        observable: z.boolean().default(true),
         verdict: z.string().default(''),
+        findings: z
+          .array(
+            z.object({
+              kind: z.enum(['working', 'issue', 'not_observable']).default('issue'),
+              title: z.string().default(''),
+              detail: z.string().default(''),
+              quote: z.string().nullable().default(null),
+              impact: z.string().nullable().default(null),
+            }),
+          )
+          .default([]),
       }),
     )
     .default([]),
-  working: z.array(auditFindingSchema).default([]),
-  missing: z
-    .array(auditFindingSchema.extend({ impact: z.string().nullable().default(null) }))
+  fixes: z
+    .array(
+      z.object({
+        title: z.string().default(''),
+        detail: z.string().default(''),
+        impact: z.enum(['high', 'medium', 'low']).default('medium'),
+        effort: z.enum(['high', 'medium', 'low']).default('medium'),
+        area: z.enum(AUDIT_AREAS).nullable().default(null),
+        quote: z.string().nullable().default(null),
+      }),
+    )
+    .default([]),
+  testFirst: z
+    .array(
+      z.object({
+        title: z.string().default(''),
+        hypothesis: z.string().default(''),
+        metric: z.string().default(''),
+        quote: z.string().nullable().default(null),
+      }),
+    )
     .default([]),
   designSummary: z.string().default(''),
+  designQuote: z.string().nullable().default(null),
   designNotes: z.array(z.string()).default([]),
-  testFirst: z.array(auditFindingSchema).default([]),
 });
+
+export type SiteAuditV2Out = z.infer<typeof siteAuditV2OutSchema>;
 
 /**
  * Output of the pre-report RED-TEAM pass (founder: "double-check the metrics

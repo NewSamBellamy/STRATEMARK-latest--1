@@ -6,7 +6,7 @@
  * researched figure with no usable source is dropped, never shown bare.
  */
 import type { LiveIntelItem, Product, ProductBrief, RoadmapItem } from '@mi/contracts';
-import { formatDateLong } from '@/lib/format';
+import { formatDate, formatDateLong } from '@/lib/format';
 import { exportSource } from './exportModel';
 import type { ReportCompanyInfo, ReportFootnote } from './topicReportModel';
 
@@ -40,21 +40,27 @@ const isWeb = (url: string | null | undefined): url is string => !!url && /^http
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** True when `text` names the product as a whole word. Names under 3 letters never match (too ambiguous). */
-export function mentionsProduct(text: string, name: string): boolean {
+export function mentionsProduct(text: string, name: string, siblings: readonly string[] = []): boolean {
   const n = name.trim();
   if (n.length < 3) return false;
-  return new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(n)}($|[^\\p{L}\\p{N}])`, 'iu').test(text);
+  const word = (w: string, flags: string) => new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(w.trim())}(?=$|[^\\p{L}\\p{N}])`, flags);
+  // A longer product of the same company that contains this name ("Claude Code" for "Claude") is not this product.
+  let rest = text;
+  for (const s of siblings.filter((x) => x.trim().length > n.length && word(n, 'iu').test(x)).sort((a, b) => b.length - a.length)) {
+    rest = rest.replace(word(s, 'giu'), ' ');
+  }
+  return word(n, 'iu').test(rest);
 }
 
-export function relatedStories(items: readonly LiveIntelItem[], productName: string, max = 6): ProductStory[] {
+export function relatedStories(items: readonly LiveIntelItem[], productName: string, max = 6, siblings: readonly string[] = []): ProductStory[] {
   return items
-    .filter((i) => isWeb(i.url) && mentionsProduct(`${i.title} ${i.summary ?? ''}`, productName))
+    .filter((i) => isWeb(i.url) && mentionsProduct(`${i.title} ${i.summary ?? ''}`, productName, siblings))
     .slice(0, max)
     .map((i) => ({ title: i.title, url: i.url, publisher: i.publisher ?? null, date: i.publishedDate ?? null, sentiment: i.sentiment }));
 }
 
-export function relatedRoadmap(items: readonly RoadmapItem[], productName: string): RoadmapItem[] {
-  return items.filter((r) => mentionsProduct(`${r.title} ${r.detail}`, productName));
+export function relatedRoadmap(items: readonly RoadmapItem[], productName: string, siblings: readonly string[] = []): RoadmapItem[] {
+  return items.filter((r) => mentionsProduct(`${r.title} ${r.detail}`, productName, siblings));
 }
 
 export function sentimentTally(stories: readonly ProductStory[]): Record<Sentiment, number> {
@@ -92,6 +98,13 @@ export function metricRows(product: Product, brief: ProductBrief | null): Metric
     { label: 'Status', value: product.status ? STATUS_LABEL[product.status] : null, asOf: null, source: null },
     { label: 'Revenue role', value: product.revenueNote?.trim() || null, asOf: null, source: null },
   ];
+  if (brief?.launched) {
+    const url = brief.launched.sourceUrl;
+    rows.splice(1, 0, {
+      label: 'Launched', value: isWeb(url) ? brief.launched.date : null, asOf: null,
+      source: isWeb(url) ? { title: exportSource({ url }).title, url } : null,
+    });
+  }
   for (const m of brief?.metrics ?? []) {
     const sourced = isWeb(m.sourceUrl);
     rows.push({
@@ -103,6 +116,9 @@ export function metricRows(product: Product, brief: ProductBrief | null): Metric
   }
   return rows;
 }
+
+export interface ProductNewsRow { title: string; url: string; publisher: string | null; date: string | null }
+export interface ProductVideoRow { title: string; channel: string; url: string; date: string | null; official: boolean }
 
 export interface ProductReportModel {
   company: ReportCompanyInfo;
@@ -118,6 +134,31 @@ export interface ProductReportModel {
   /** Footnote number for each source url used above (keyed by the url as stored). */
   noteByUrl: Record<string, number>;
   researched: boolean;
+  /** Who it is for, as sources state it; null = not reported. */
+  audience: string | null;
+  /** The first launch a source dates; null = not reported. */
+  launched: { date: string; title: string } | null;
+  /** Product-specific news (publisher headlines, dated), newest first. */
+  news: ProductNewsRow[];
+  /** Verified YouTube videos, latest first. */
+  videos: ProductVideoRow[];
+}
+
+/** The brief's product news as rows, newest first; only web links. */
+export function newsRows(brief: ProductBrief | null): ProductNewsRow[] {
+  return (brief?.news ?? []).filter((n) => isWeb(n.url))
+    .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
+    .map((n) => ({ title: n.title, url: n.url, publisher: n.publisher, date: Number.isFinite(Date.parse(n.publishedAt)) ? formatDate(n.publishedAt) : null }));
+}
+
+export const youtubeWatch = (id: string): string => `https://www.youtube.com/watch?v=${id}`;
+
+/** The brief's verified videos as rows, in the stored (latest first) order. */
+export function videoRows(brief: ProductBrief | null): ProductVideoRow[] {
+  return (brief?.videos ?? []).map((v) => ({
+    title: v.title, channel: v.channel, url: youtubeWatch(v.id), official: v.official,
+    date: v.publishedAt && Number.isFinite(Date.parse(v.publishedAt)) ? formatDate(v.publishedAt) : null,
+  }));
 }
 
 export function buildProductReportModel(args: {
@@ -145,6 +186,10 @@ export function buildProductReportModel(args: {
   const timeline = productTimeline(brief, args.roadmap);
   timeline.forEach((t) => note(t.sourceUrl));
   args.stories.forEach((s) => note(s.url, s.publisher ?? s.title));
+  const news = newsRows(brief);
+  news.forEach((n) => note(n.url, n.publisher ?? n.title));
+  const videos = videoRows(brief);
+  videos.forEach((v) => note(v.url, `${v.title} (${v.channel}, YouTube)`));
   return {
     company: args.company,
     product: { name: product.name, status: product.status ? STATUS_LABEL[product.status] : null, url: isWeb(product.url) ? product.url : null },
@@ -157,5 +202,9 @@ export function buildProductReportModel(args: {
     footnotes,
     noteByUrl,
     researched: !!brief,
+    audience: brief?.audience?.trim() || null,
+    launched: brief?.launched ? { date: brief.launched.date, title: brief.launched.title } : null,
+    news,
+    videos,
   };
 }

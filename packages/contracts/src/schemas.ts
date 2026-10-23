@@ -709,6 +709,12 @@ export const productSchema = z.object({
   // badge. An unreadable (non-null, non-enum) status still drops the row rather
   // than asserting a lifecycle stage we did not find. Additive widening.
   status: z.enum(['live', 'beta', 'sunset']).nullable(),
+  /**
+   * Additive: the page that reports this product when it is not the product's own
+   * official page (a Google Search report's source). Absent on content stored before.
+   */
+  sourceUrl: prose().nullable().optional().catch(undefined),
+  sourceTitle: prose().nullable().optional().catch(undefined),
 });
 export const roadmapItemSchema = z.object({
   title: z.string(),
@@ -716,6 +722,9 @@ export const roadmapItemSchema = z.object({
   detail: prose(),
   /** Announced/reported date when sources give one (e.g. "2026 H2"); additive. */
   date: prose().nullable().catch(null),
+  /** Additive: the page this plan was reported on. Absent on content stored before it existed. */
+  sourceUrl: prose().nullable().optional().catch(undefined),
+  sourceTitle: prose().nullable().optional().catch(undefined),
 });
 /** A named customer, supplier or partner, only as an exact reported sentence states it. */
 export const businessRelationshipSchema = z.object({
@@ -753,6 +762,34 @@ export const productBriefTimelineSchema = z.object({
   detail: prose(),
   sourceUrl: z.string().nullable().catch(null),
 });
+/** One news story that names the product: the publisher's own headline, dated, with its link. */
+export const productNewsItemSchema = z.object({
+  title: z.string().max(300),
+  url: z.string().max(600),
+  publisher: z.string().max(120).nullable().catch(null),
+  /** ISO timestamp the feed reported; a story without a readable date is never kept. */
+  publishedAt: isoTimestamp,
+  /** The search engine's own summary of the story (untrusted text, shown as a quote with its link). */
+  snippet: z.string().max(300).catch(''),
+});
+/** One verified YouTube video about the product (oEmbed-checked; title and channel are YouTube's). */
+export const productVideoSchema = z.object({
+  id: z.string().regex(/^[\w-]{11}$/),
+  title: z.string().max(300),
+  channel: z.string().max(200),
+  channelUrl: z.string().max(300).regex(/^https:[/][/](www[.])?youtube[.]com[/]/i).nullable().catch(null),
+  /** Only when the search engine reported an upload date; never guessed. */
+  publishedAt: z.string().max(40).nullable().catch(null),
+  /** The channel is the company's own. */
+  official: z.boolean().catch(false),
+  checkedAt: isoTimestamp,
+});
+/** The earliest launch a source dates for the product (derived from the sourced timeline, never invented). */
+export const productLaunchSchema = z.object({
+  date: z.string(),
+  title: z.string(),
+  sourceUrl: z.string().nullable().catch(null),
+});
 export const productBriefSchema = z.object({
   companyId: z.string(),
   productName: z.string(),
@@ -762,6 +799,16 @@ export const productBriefSchema = z.object({
   sentiment: productBriefSentimentSchema.nullable().catch(null),
   timeline: rows(productBriefTimelineSchema),
   citations: z.array(citationSchema).catch([]),
+  /** Additive: who the product is for, only as the grounded answers state it. */
+  audience: prose().optional(),
+  /** Additive: the first dated launch in the sourced timeline. */
+  launched: productLaunchSchema.nullable().optional().catch(undefined),
+  /** Additive: product-specific news. Absent = never searched; [] with newsCheckedAt = searched, none found. */
+  news: rows(productNewsItemSchema).optional(),
+  newsCheckedAt: z.string().optional().catch(undefined),
+  /** Additive: product-specific videos, same convention as `news`. */
+  videos: rows(productVideoSchema).optional(),
+  videosCheckedAt: z.string().optional().catch(undefined),
 });
 export const productsRoadmapContentSchema = z.object({
   products: rows(productSchema),

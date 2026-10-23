@@ -37,7 +37,9 @@ import {
 } from '@/lib/api/service';
 import { useApiKey } from '@/lib/settings/apiKey';
 import { printScoped } from '@/lib/print';
+import { PrintBrand, PrintColophon } from '@/components/PrintFrame';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
+import { ChecklistSection, ConfidenceBanner, CriteriaSection, EvidenceQuote, FixesSection } from './SiteAuditEvidence';
 import { cn } from '@/lib/cn';
 import { SafeLink } from '@/components/SafeLink';
 
@@ -48,6 +50,9 @@ const AREA_LABEL: Record<SiteAuditArea, string> = {
   trust: 'Trust & social proof',
   design: 'Design & hierarchy',
   seo: 'Findability / SEO',
+  friction: 'Friction (forms and navigation)',
+  mobile_performance: 'Mobile & performance',
+  accessibility: 'Accessibility basics',
 };
 
 /**
@@ -223,6 +228,7 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
 
   return (
     <article className="brf-print-root mx-auto max-w-3xl">
+      <PrintBrand kind="Site audit" />
       {/* ── Masthead ── */}
       <header className="border-y-[3px] border-double border-content/70 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -231,7 +237,7 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
           </p>
           <button
             type="button"
-            onClick={printScoped}
+            onClick={() => printScoped(`${audit.siteName} site audit`)}
             className="brf-no-print inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
             title="Print or save this audit as a PDF"
           >
@@ -270,13 +276,15 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
         </div>
       </header>
 
+      <ConfidenceBanner audit={audit} />
+
       {/* ── The page itself ── */}
       <div className="mt-6">
         <PageCapture url={audit.url} siteName={audit.siteName} designSummary={audit.designStyle.summary} />
       </div>
 
       {/* ── Scorecard ── */}
-      {audit.scores.length > 0 && (
+      {audit.criteria && audit.criteria.length > 0 ? <CriteriaSection criteria={audit.criteria} /> : audit.scores.length > 0 && (
         <section className="mt-8">
           <h2 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted">
             Scorecard
@@ -310,6 +318,7 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
               <li key={i}>
                 <p className="text-sm font-semibold text-content">{f.title}</p>
                 <p className="mt-0.5 text-[13px] leading-relaxed text-muted">{f.detail}</p>
+                <EvidenceQuote finding={f} />
               </li>
             ))}
             {audit.working.length === 0 && (
@@ -332,6 +341,7 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
                     Impact: {f.impact}
                   </p>
                 )}
+                <EvidenceQuote finding={f} />
               </li>
             ))}
             {audit.missing.length === 0 && (
@@ -340,6 +350,9 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
           </ul>
         </div>
       </section>
+
+      {audit.checklist && <ChecklistSection checks={audit.checklist} />}
+      {audit.fixes && <FixesSection fixes={audit.fixes} />}
 
       {/* ── Design style ── */}
       {(audit.designStyle.summary || audit.designStyle.notes.length > 0) && (
@@ -426,6 +439,7 @@ export function SiteAuditView({ report, audit }: { report: Report; audit: SiteAu
           </p>
         </footer>
       )}
+      <PrintColophon />
     </article>
   );
 }

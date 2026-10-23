@@ -82,6 +82,18 @@ describe('verifyBySignature — the free stage', () => {
     expect(v).toMatchObject({ isRealPage: true, blockKind: null, decidedBy: 'signature' });
   });
 
+  it('does not fail a genuine long page that merely mentions Cloudflare, captcha, 403 or "blocked" in its copy', () => {
+    const long = `${REAL_TEXT.repeat(8)} We deploy on Cloudflare, replace captcha with invisible checks, and fix 403 and 404 errors for customers whose traffic is blocked. ${REAL_TEXT}`;
+    expect(long.length).toBeGreaterThan(1500);
+    const v = verifyBySignature(receipt({ title: 'Acme - Web security' }), long);
+    expect(v).toMatchObject({ isRealPage: true, blockKind: null });
+  });
+
+  it('still catches a short challenge page, and a long page whose title says so', () => {
+    expect(verifyBySignature(receipt(), 'Please complete the captcha to continue.')?.blockKind).toBe('captcha');
+    expect(verifyBySignature(receipt({ title: 'Access denied' }), REAL_TEXT.repeat(8))?.blockKind).toBe('forbidden');
+  });
+
   it('defers to vision when there is too little text to judge', () => {
     expect(verifyBySignature(receipt(), 'Hello')).toBeNull();
   });

@@ -21,6 +21,7 @@ import type {
   ReportTopic,
 } from './enums';
 import type { MarketProfile } from './market-profile';
+import type { CompanyReportResult } from './company-report';
 import type {
   Card,
   Company,
@@ -443,7 +444,11 @@ export type SiteAuditArea =
   | 'cta'
   | 'trust'
   | 'design'
-  | 'seo';
+  | 'seo'
+  // Added with the evidence-based rubric; stored reports from before never carry them.
+  | 'friction'
+  | 'mobile_performance'
+  | 'accessibility';
 
 export interface SiteAuditScore {
   area: SiteAuditArea;
@@ -457,6 +462,57 @@ export interface SiteAuditFinding {
   detail: string;
   /** For gaps: what the miss is costing (conversions, trust, traffic). */
   impact?: string | null;
+  /** The verbatim text from the page (or search context) this finding rests on. Absent on older reports. */
+  quote?: string | null;
+  /** Where the quote was found; 'search' means grounded web context, not the page itself. */
+  evidenceSource?: 'page' | 'search' | null;
+  /** True when the evidence supplied did not show enough to judge; there is no quote by design. */
+  notObservable?: boolean;
+}
+
+/** One rubric category: weighted, scored 1–10 only when the evidence allowed it. */
+export interface SiteAuditCriterion {
+  area: SiteAuditArea;
+  label: string;
+  /** Share of the overall score, in percent. Weights of all criteria sum to 100. */
+  weight: number;
+  /** 1–10, or null when nothing supplied could show this (never imputed). */
+  score: number | null;
+  observable: boolean;
+  /** 'checks' = computed from the page HTML by fixed rules; 'model' = judged against the rubric anchors. */
+  scoredBy: 'checks' | 'model';
+  verdict: string;
+  findings: SiteAuditFinding[];
+}
+
+/** A deterministic, repeatable check computed from the page's HTML. */
+export interface SiteAuditCheck {
+  id: string;
+  area: SiteAuditArea;
+  label: string;
+  /** 'unknown' when the page could not be read or the fact is not visible in source HTML. */
+  status: 'pass' | 'fail' | 'unknown';
+  /** What was measured, quoting the page where there is something to quote. */
+  detail: string;
+}
+
+export interface SiteAuditFix {
+  title: string;
+  detail: string;
+  impact: 'high' | 'medium' | 'low';
+  effort: 'high' | 'medium' | 'low';
+  area?: SiteAuditArea | null;
+  quote?: string | null;
+}
+
+export interface SiteAuditConfidence {
+  level: 'high' | 'medium' | 'low';
+  /** Share (0–1) of the rubric weight that could be observed and scored. */
+  coverage: number;
+  /** Whether the page's own HTML was read. False = grounded web context only. */
+  pageRead: boolean;
+  /** Plain-words reason, shown as the banner. */
+  note: string;
 }
 
 export interface SiteAuditContent {
@@ -469,6 +525,24 @@ export interface SiteAuditContent {
   missing: SiteAuditFinding[];
   designStyle: { summary: string; notes: string[] };
   testFirst: SiteAuditFinding[];
+  // Evidence-based audit. All optional: older stored reports lack them and render the original way.
+  version?: 2;
+  /** Weighted rubric categories with per-criterion findings and quotes. */
+  criteria?: SiteAuditCriterion[];
+  /** Fixed-rule pass/fail checks computed from the page HTML. */
+  checklist?: SiteAuditCheck[];
+  /** Prioritised fixes with impact/effort. */
+  fixes?: SiteAuditFix[];
+  confidence?: SiteAuditConfidence;
+  /** How the page read went; drives the banner when it did not. */
+  page?: {
+    status: 'read' | 'js_only' | 'unavailable';
+    finalUrl?: string | null;
+    reason?: string | null;
+    words?: number;
+  };
+  /** Model findings removed because their quote was not in the supplied evidence. */
+  droppedFindings?: number;
 }
 
 export interface SiteAuditInput {
@@ -1096,7 +1170,9 @@ export interface MarketIntelRepository {
   peekDashboardTab?<T extends DashboardTab>(companyId: string, tab: T): Promise<DashboardTabResult<T> | null>;
   /**
    * Research one product for its own page: key metrics, overview, how it is
-   * received and its growth timeline, every figure sourced. Stores the result.
+   * received, its growth timeline, product-specific news and YouTube videos, every figure
+   * sourced. Stores the result. A stored brief is returned free; only its news/videos re-run
+   * when missing or stale (3 and 14 days). `force` re-runs everything.
    * Spends research credits, so only on request. OPTIONAL — live-research engines.
    */
   researchProductBrief?(input: { companyId: string; productName: string; force?: boolean }): Promise<ProductBrief>;
@@ -1113,6 +1189,19 @@ export interface MarketIntelRepository {
   listSourceActivity?(sinceId?: number): Promise<{ items: SourceActivity[]; lastId: number }>;
   /** A stored product brief, or null when none was researched. Never researches. OPTIONAL. */
   peekProductBrief?(companyId: string, productName: string): Promise<ProductBrief | null>;
+  /**
+   * The company's living report, read from what is stored: never researches and never calls a model. Returns the
+   * last written report with `stale` set when the research has moved on since, or, when none was written yet, a
+   * report assembled from stored text alone (status 'stored_data'). Null only for an unknown company. OPTIONAL.
+   */
+  peekCompanyReport?(companyId: string): Promise<CompanyReportResult | null>;
+  /**
+   * Write (or, with `force`, rewrite) the company's report: one structured model call over everything stored,
+   * checked by a deterministic gate (cited, no invented figures), then kept by data hash. A current report is
+   * returned without spending. With no model or on failure it falls back to a report built from stored text.
+   * Spends credits, so only on a person's request. OPTIONAL — engines holding research locally.
+   */
+  getCompanyReport?(companyId: string, options?: { force?: boolean; signal?: AbortSignal }): Promise<CompanyReportResult>;
   listReports(): Promise<Report[]>;
   getReport(id: string): Promise<Report | null>;
 

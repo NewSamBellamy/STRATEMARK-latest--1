@@ -164,7 +164,7 @@ export function productBriefQuestions(args: ProductBriefArgs, today: string): Ar
   const s = subject(args);
   const head = `Today is ${today}. ${UNTRUSTED}\n`;
   return [
-    { key: 'metrics', prompt: `${head}Find the key PUBLIC metrics for ${s}: number of users or customers, revenue or ARR attributable to it, pricing and plans, usage volume, and growth. For each, give the figure exactly as published, what it measures, the date it refers to, and the source. List only figures a source actually states.` },
+    { key: 'metrics', prompt: `${head}Find the key PUBLIC metrics for ${s}, and say in one sentence who it is for (its intended users or customers, as sources describe them): number of users or customers, revenue or ARR attributable to it, pricing and plans, usage volume, and growth. For each, give the figure exactly as published, what it measures, the date it refers to, and the source. List only figures a source actually states.` },
     { key: 'reception', prompt: `${head}How is ${s} received? Summarise what reviews, press and users say: what is praised, what is criticised, and how widely it is adopted. Attribute each point to its source. Do not invent reviews or ratings.` },
     { key: 'timeline', prompt: `${head}Build the launch and growth timeline of ${s}: when it was announced, launched and major releases, pricing changes, and growth milestones. Give each milestone with its date as the source dates it, and the source. List only dated milestones sources state.` },
   ];
@@ -175,7 +175,7 @@ export function productBriefStructurePrompt(args: ProductBriefArgs, answers: Rea
   const sourceText = sources.map((c, i) => `[${i + 1}] ${clean(c.title, 120)} - ${c.url}`).join('\n');
   return [
     `Turn these research answers about ${subject(args)} into one JSON object. ${UNTRUSTED}`,
-    'Shape: {"overview": string (2-3 sentences, what it is and where it stands), "metrics": [{"label": string, "value": string|null, "asOf": string|null, "sourceUrl": string|null}], "sentiment": {"summary": string, "positive": string[], "negative": string[], "sources": [{"title": string, "url": string}]}|null, "timeline": [{"date": string, "title": string, "detail": string, "sourceUrl": string|null}]}',
+    'Shape: {"overview": string (2-3 sentences, what it is and where it stands), "audience": string|null (one sentence on who it is for, only if the answers say so), "metrics": [{"label": string, "value": string|null, "asOf": string|null, "sourceUrl": string|null}], "sentiment": {"summary": string, "positive": string[], "negative": string[], "sources": [{"title": string, "url": string}]}|null, "timeline": [{"date": string, "title": string, "detail": string, "sourceUrl": string|null}]}',
     `Rules: at most ${MAX_METRICS} metrics, ${MAX_TIMELINE} timeline entries, ${MAX_POINTS} positive and ${MAX_POINTS} negative points. A metric "value" is copied exactly as a source writes it, never computed, converted or estimated; if no source states a figure, set value to null. Every sourceUrl and sentiment url MUST be copied exactly from the SOURCES list below; otherwise use null. Timeline dates are as the source dates them and must include the year; skip anything undated. Use sentiment null when nothing was reported on reception.`,
     `SOURCES (the only URLs you may use):\n${sourceText}`,
     answerText,
@@ -193,6 +193,7 @@ const rowsOf = <T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>) =>
 
 export const productBriefOutSchema = z.object({
   overview: looseString,
+  audience: looseString,
   metrics: rowsOf(z.object({ label: looseString, value: looseString, asOf: looseString, sourceUrl: looseString })),
   sentiment: z.object({
     summary: looseString,
@@ -283,6 +284,10 @@ export function sanitizeProductBrief(
     }
   }
 
+  // The first launch a source dates, and who it is for: both gated like every other sentence.
+  const launched = firstLaunch(timeline);
+  const audience = traceableProse(out.audience ?? '', known, 240);
+
   const referenced = citations.filter((c) => used.has(c.url));
   const rest = citations.filter((c) => !used.has(c.url));
   return {
@@ -294,7 +299,22 @@ export function sanitizeProductBrief(
     sentiment,
     timeline,
     citations: [...referenced, ...rest].slice(0, MAX_CITATIONS),
+    ...(audience ? { audience } : {}),
+    ...(launched ? { launched } : {}),
   };
+}
+
+const LAUNCH_WORDING = /\b(?:launch\w*|releas\w*|introduc\w*|unveil\w*|debut\w*|announc\w*|available|rolled?\s+out)\b/i;
+
+/** The earliest dated timeline row that says the product launched; null when no sourced row does (never inferred). */
+export function firstLaunch(timeline: ProductBrief['timeline']): ProductBrief['launched'] {
+  let best: { year: number; row: ProductBrief['timeline'][number] } | null = null;
+  for (const row of timeline) {
+    if (!LAUNCH_WORDING.test(row.title)) continue;
+    const year = Number(fold(row.date).match(YEAR)?.[0]);
+    if (Number.isFinite(year) && (!best || year < best.year)) best = { year, row };
+  }
+  return best ? { date: best.row.date, title: best.row.title, sourceUrl: best.row.sourceUrl } : null;
 }
 
 /** Whether a brief says anything at all (a brief of nothing is an error, not a page). */

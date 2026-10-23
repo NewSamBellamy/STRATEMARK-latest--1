@@ -1,172 +1,314 @@
 {
-  "at": "2026-10-23T04:19:02.192Z",
-  "base": "http://localhost:4611",
-  "snap": {},
+  "at": "2026-10-23T05:34:07.393Z",
+  "base": "http://127.0.0.1:4611",
+  "snap": {
+    "logo": {
+      "total": {
+        "requested": 6,
+        "loaded": 6,
+        "fallback": 0
+      },
+      "hosts": {
+        "mistral.ai": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 0
+        },
+        "anthropic.com": {
+          "requested": 2,
+          "loaded": 0,
+          "fallback": 0
+        },
+        "openai.com": {
+          "requested": 2,
+          "loaded": 0,
+          "fallback": 0
+        },
+        "t2.gstatic.com": {
+          "requested": 0,
+          "loaded": 2,
+          "fallback": 0
+        },
+        "commons.wikimedia.org": {
+          "requested": 0,
+          "loaded": 3,
+          "fallback": 0
+        },
+        "upload.wikimedia.org": {
+          "requested": 0,
+          "loaded": 1,
+          "fallback": 0
+        },
+        "nvidia.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 0
+        }
+      }
+    },
+    "site-shot": {
+      "total": {
+        "requested": 3,
+        "loaded": 3,
+        "fallback": 0
+      },
+      "hosts": {
+        "nvidia.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 0
+        },
+        "s.wordpress.com": {
+          "requested": 0,
+          "loaded": 3,
+          "fallback": 0
+        },
+        "openai.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 0
+        },
+        "anthropic.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 0
+        }
+      }
+    },
+    "person": {
+      "total": {
+        "requested": 0,
+        "loaded": 18,
+        "fallback": 51
+      },
+      "hosts": {
+        "none": {
+          "requested": 0,
+          "loaded": 0,
+          "fallback": 51
+        },
+        "commons.wikimedia.org": {
+          "requested": 0,
+          "loaded": 2,
+          "fallback": 0
+        },
+        "thumb.wikimedia.org": {
+          "requested": 0,
+          "loaded": 16,
+          "fallback": 0
+        }
+      }
+    },
+    "story": {
+      "total": {
+        "requested": 48,
+        "loaded": 3,
+        "fallback": 40
+      },
+      "hosts": {
+        "barchart.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "globenewswire.com": {
+          "requested": 2,
+          "loaded": 0,
+          "fallback": 2
+        },
+        "news.skhynix.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "axios.com": {
+          "requested": 2,
+          "loaded": 0,
+          "fallback": 2
+        },
+        "investor.nvidia.com": {
+          "requested": 2,
+          "loaded": 0,
+          "fallback": 2
+        },
+        "datacentremagazine.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "latimes.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "blogs.nvidia.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "reddit.com": {
+          "requested": 11,
+          "loaded": 0,
+          "fallback": 11
+        },
+        "thehackernews.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 0
+        },
+        "gadgets360.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "openai.com": {
+          "requested": 3,
+          "loaded": 0,
+          "fallback": 3
+        },
+        "infoworld.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "blogger.googleusercontent.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "cbsnews.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "time.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "community.openai.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "x.com": {
+          "requested": 4,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "anthropic.com": {
+          "requested": 2,
+          "loaded": 0,
+          "fallback": 2
+        },
+        "washingtonpost.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 0
+        },
+        "pbs.twimg.com": {
+          "requested": 3,
+          "loaded": 3,
+          "fallback": 0
+        },
+        "aljazeera.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "prnewswire.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "commonwealth.com.tw": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "modelcontextprotocol.io": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "nec.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        },
+        "podcasts.apple.com": {
+          "requested": 1,
+          "loaded": 0,
+          "fallback": 1
+        }
+      }
+    }
+  },
   "dom": [
     {
       "label": "deck",
-      "total": 0,
-      "ok": 0
+      "total": 3,
+      "ok": 3
     },
     {
       "label": "nvidia-corporati/overview",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "nvidia-corporati/metrics",
-      "total": 0,
-      "ok": 0
+      "total": 3,
+      "ok": 3
     },
     {
       "label": "nvidia-corporati/team_org",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "nvidia-corporati/history",
-      "total": 0,
-      "ok": 0
+      "total": 2,
+      "ok": 2
     },
     {
       "label": "nvidia-corporati/products_roadmap",
-      "total": 0,
-      "ok": 0
+      "total": 1,
+      "ok": 1
     },
     {
       "label": "nvidia-corporati/live_intel",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "nvidia-corporati/mission_governance",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "nvidia-corporati/live_landing",
-      "total": 0,
-      "ok": 0
+      "total": 11,
+      "ok": 11
     },
     {
       "label": "openai_5sz16/overview",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "openai_5sz16/metrics",
-      "total": 0,
-      "ok": 0
+      "total": 5,
+      "ok": 5
     },
     {
       "label": "openai_5sz16/team_org",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "openai_5sz16/history",
-      "total": 0,
-      "ok": 0
+      "total": 7,
+      "ok": 7
     },
     {
       "label": "openai_5sz16/products_roadmap",
-      "total": 0,
-      "ok": 0
+      "total": 1,
+      "ok": 1
     },
     {
       "label": "openai_5sz16/live_intel",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "openai_5sz16/mission_governance",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "openai_5sz16/live_landing",
-      "total": 0,
-      "ok": 0
+      "total": 11,
+      "ok": 11
     },
     {
       "label": "anthropic_1ydvf/overview",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "anthropic_1ydvf/metrics",
-      "total": 0,
-      "ok": 0
+      "total": 4,
+      "ok": 4
     },
     {
       "label": "anthropic_1ydvf/team_org",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "anthropic_1ydvf/history",
-      "total": 0,
-      "ok": 0
+      "total": 6,
+      "ok": 6
     },
     {
       "label": "anthropic_1ydvf/products_roadmap",
-      "total": 0,
-      "ok": 0
+      "total": 1,
+      "ok": 1
     },
     {
       "label": "anthropic_1ydvf/live_intel",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "anthropic_1ydvf/mission_governance",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "anthropic_1ydvf/live_landing",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "coreweave_q8nfb/overview",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "coreweave_q8nfb/metrics",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "coreweave_q8nfb/team_org",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "coreweave_q8nfb/history",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "coreweave_q8nfb/products_roadmap",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "coreweave_q8nfb/live_intel",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "coreweave_q8nfb/mission_governance",
-      "total": 0,
-      "ok": 0
-    },
-    {
-      "label": "coreweave_q8nfb/live_landing",
-      "total": 0,
-      "ok": 0
+      "total": 16,
+      "ok": 16
     }
   ]
 }

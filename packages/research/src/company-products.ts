@@ -183,7 +183,8 @@ export function renderCompanyProducts(company: Company, originals: readonly Orig
     const key = `roadmap:${normalizeSourceText(row.data.title).toLowerCase()}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    content.roadmap.push({ title: row.data.title, date, horizon, detail: `${date ? '' : 'Timing not established. '}${citedDescription(row.data.quote, source)}` });
+    content.roadmap.push({ title: row.data.title, date, horizon, detail: `${date ? '' : 'Timing not established. '}${citedDescription(row.data.quote, source)}`,
+      sourceUrl: source.finalUrl!, sourceTitle: `Company-reported plan · ${host(source.finalUrl!)}` });
     retained.roadmap.push(row.data);
     citations.push({ title: `Company-reported plan · ${host(source.finalUrl!)}`, url: source.finalUrl! });
   }
@@ -201,7 +202,8 @@ export function renderCompanyProducts(company: Company, originals: readonly Orig
         !claimSentences(support.text, row.data.quote, aliases, row.data.name).some(sentence => ownedProductSentence(sentence, aliases, row.data.name))) continue;
       const lifecycle = productStatus(row.data.name, row.data.status, row.data.quote, now); if (!lifecycle.keep) continue;
       const key = normalizeSourceText(row.data.name).toLowerCase(); if (seen.has(key)) continue; seen.add(key);
-      content.products.push({ name: row.data.name, status: lifecycle.status, description: `${reportLabel} “${normalizeSourceText(row.data.quote)}”`, revenueNote: '', url: null });
+      content.products.push({ name: row.data.name, status: lifecycle.status, description: `${reportLabel} “${normalizeSourceText(row.data.quote)}”`, revenueNote: '', url: null,
+        sourceUrl: support.sources[0]!.url, sourceTitle: support.sources[0]!.title });
       retained.reportedProducts!.push(row.data);
       for (const source of support.sources) citations.push({ title: `Google Search report for ${row.data.name} · ${source.title}`, url: source.url });
     }
@@ -213,7 +215,8 @@ export function renderCompanyProducts(company: Company, originals: readonly Orig
       let date: string | null = null, horizon: 'now' | 'next' | 'later' = 'later';
       if (row.data.date !== null) { const parsedDate = Date.parse(`${row.data.date}T00:00:00.000Z`); if (!/^\d{4}-\d{2}-\d{2}$/.test(row.data.date) || !Number.isFinite(parsedDate) || !row.data.quote.includes(row.data.date) || parsedDate < now - 86400000) continue; date = row.data.date; const days = (parsedDate - now) / 86400000; horizon = days <= 30 ? 'now' : days <= 180 ? 'next' : 'later'; }
       const key = `roadmap:${normalizeSourceText(row.data.title).toLowerCase()}`; if (seen.has(key)) continue; seen.add(key);
-      content.roadmap.push({ title: row.data.title, date, horizon, detail: `${date ? '' : 'Timing not established. '}${reportLabel} “${normalizeSourceText(row.data.quote)}”` });
+      content.roadmap.push({ title: row.data.title, date, horizon, detail: `${date ? '' : 'Timing not established. '}${reportLabel} “${normalizeSourceText(row.data.quote)}”`,
+        sourceUrl: support.sources[0]!.url, sourceTitle: support.sources[0]!.title });
       retained.reportedRoadmap!.push(row.data);
       for (const source of support.sources) citations.push({ title: `Google Search report for ${row.data.title} · ${source.title}`, url: source.url });
     }

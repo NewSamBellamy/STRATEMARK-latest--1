@@ -31,6 +31,8 @@ export function ProductReportBody({ model }: { model: ProductReportModel }) {
             {model.overview.researched && <p className="sm-r-lede">{model.overview.researched}</p>}
             {model.overview.stored && <p className="sm-r-lede">{model.overview.stored}</p>}
             {!model.overview.researched && !model.overview.stored && <p className="sm-r-lede">Not reported.</p>}
+            {model.audience && <p style={{ margin: 0 }}><strong>Who it is for.</strong> {model.audience}</p>}
+            {model.launched && <p style={{ margin: 0 }}><strong>First launch.</strong> {model.launched.date}: {model.launched.title}</p>}
           </div>
         </Row>
         <Row>
@@ -53,6 +55,30 @@ export function ProductReportBody({ model }: { model: ProductReportModel }) {
           </div>
         </Row>
       </ReportSection>
+
+      {model.news.length > 0 && (
+        <ReportSection about={`${name} · ${co.name}`} title="What's new">
+          {model.news.map((n) => (
+            <Row key={n.url}>
+              <p className="sm-r-source">
+                {n.title}{n.publisher ? ` · ${n.publisher}` : ''}{n.date ? ` · ${n.date}` : ''}<Ref n={noteOf(n.url)} />
+              </p>
+            </Row>
+          ))}
+        </ReportSection>
+      )}
+
+      {model.videos.length > 0 && (
+        <ReportSection about={`${name} · ${co.name}`} title="Videos">
+          {model.videos.map((v) => (
+            <Row key={v.url}>
+              <p className="sm-r-source">
+                {v.title} · {v.channel}{v.official ? ' (official channel)' : ''}{v.date ? ` · ${v.date}` : ''}<Ref n={noteOf(v.url)} />
+              </p>
+            </Row>
+          ))}
+        </ReportSection>
+      )}
 
       {(model.sentiment || model.stories.length > 0) && (
         <ReportSection about={`${name} · ${co.name}`} title="How it is received">

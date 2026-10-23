@@ -155,6 +155,7 @@ describe('the other printed reports', () => {
       overview: { stored: 'Stored overview.', researched: null },
       metrics: [{ label: 'Users', value: '5 million', asOf: '2026', source: { title: 'Reuters', url: note.url } }, { label: 'Revenue', value: null, asOf: null, source: null }],
       sentiment: null, stories: [], timeline: [], footnotes: [note], noteByUrl: { [note.url]: 1 },
+      audience: null, launched: null, news: [], videos: [],
     };
     const el = printed({ kind: 'productReport', model });
     const text = squash(el.textContent);

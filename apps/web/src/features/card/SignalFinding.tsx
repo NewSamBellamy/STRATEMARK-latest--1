@@ -1,4 +1,5 @@
 import { ExternalLink } from 'lucide-react';
+import { PrintBrand, PrintColophon } from '@/components/PrintFrame';
 import { publisherOf, type CardWithCompany } from '@mi/contracts';
 import { sourceHref } from '@/lib/sourceHref';
 import { ViceDisclaimer } from './CardDisclaimer';
@@ -54,6 +55,7 @@ export function SignalFinding({ data, citations }: { data: CardWithCompany; cita
   const empty = !reading.lead && reading.points.length === 0;
   return (
     <section className="brf-print-root signal-read" aria-label="Research finding">
+      <PrintBrand kind="Research finding" />
       {reading.lead && <p className="signal-read__lead">{reading.lead}</p>}
       {reading.points.length > 0 && <div>
         <h3 className="signal-read__heading">{vice ? 'What sources report' : 'What the research shows'}</h3>
@@ -76,6 +78,7 @@ export function SignalFinding({ data, citations }: { data: CardWithCompany; cita
           </a>)}
         </p>
         : <p className="signal-read__note">No clickable source has been saved for this finding yet.</p>}
+      <PrintColophon />
     </section>
   );
 }

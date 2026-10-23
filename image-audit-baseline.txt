@@ -1,41 +1,44 @@
-walked deck
-walked nvidia-corporati/overview
-walked nvidia-corporati/metrics
-walked nvidia-corporati/team_org
-walked nvidia-corporati/history
-walked nvidia-corporati/products_roadmap
-walked nvidia-corporati/live_intel
-walked nvidia-corporati/mission_governance
-walked nvidia-corporati/live_landing
-walked openai_5sz16/overview
-walked openai_5sz16/metrics
-walked openai_5sz16/team_org
-walked openai_5sz16/history
-walked openai_5sz16/products_roadmap
-walked openai_5sz16/live_intel
-walked openai_5sz16/mission_governance
-walked openai_5sz16/live_landing
-walked anthropic_1ydvf/overview
-walked anthropic_1ydvf/metrics
-walked anthropic_1ydvf/team_org
-walked anthropic_1ydvf/history
-walked anthropic_1ydvf/products_roadmap
-walked anthropic_1ydvf/live_intel
-walked anthropic_1ydvf/mission_governance
-walked anthropic_1ydvf/live_landing
-walked coreweave_q8nfb/overview
-walked coreweave_q8nfb/metrics
-walked coreweave_q8nfb/team_org
-walked coreweave_q8nfb/history
-walked coreweave_q8nfb/products_roadmap
-walked coreweave_q8nfb/live_intel
-walked coreweave_q8nfb/mission_governance
-walked coreweave_q8nfb/live_landing
 
 === IMAGE HIT RATE (loaded / settled) ===
 surface            hit  loaded  fallback  requested  unsettled
-ALL                n/a       0         0
+logo              100%       6         0          6          0
+person             26%      18        51          0          0
+site-shot         100%       3         0          3          0
+story               7%       3        40         48          5
+ALL                25%      30        91
 
 === TOP FAILING HOSTS (by fallback count) ===
+  51 fallbacks    0 loaded  person         none
+  11 fallbacks    0 loaded  story          reddit.com
+   3 fallbacks    0 loaded  story          openai.com
+   2 fallbacks    0 loaded  story          globenewswire.com
+   2 fallbacks    0 loaded  story          axios.com
+   2 fallbacks    0 loaded  story          investor.nvidia.com
+   2 fallbacks    0 loaded  story          anthropic.com
+   1 fallbacks    0 loaded  story          barchart.com
+   1 fallbacks    0 loaded  story          news.skhynix.com
+   1 fallbacks    0 loaded  story          datacentremagazine.com
+   1 fallbacks    0 loaded  story          latimes.com
+   1 fallbacks    0 loaded  story          blogs.nvidia.com
+   1 fallbacks    0 loaded  story          gadgets360.com
+   1 fallbacks    0 loaded  story          infoworld.com
+   1 fallbacks    0 loaded  story          blogger.googleusercontent.com
+   1 fallbacks    0 loaded  story          cbsnews.com
+   1 fallbacks    0 loaded  story          time.com
+   1 fallbacks    0 loaded  story          community.openai.com
+   1 fallbacks    0 loaded  story          x.com
+   1 fallbacks    0 loaded  story          aljazeera.com
+   1 fallbacks    0 loaded  story          prnewswire.com
+   1 fallbacks    0 loaded  story          commonwealth.com.tw
+   1 fallbacks    0 loaded  story          modelcontextprotocol.io
+   1 fallbacks    0 loaded  story          nec.com
+   1 fallbacks    0 loaded  story          podcasts.apple.com
 
-DOM cross-check: 0/0 <img> elements (non-bundled) rendered with real pixels across 33 views
+DOM cross-check: 71/71 <img> elements (non-bundled) rendered with real pixels across 13 views
+
+--- Parser check against 20 live publisher pages (browser-style request, run 2026-10-22) ---
+readable (HTTP 200): 14 of 20; walled (401/403/202): reuters, wsj, axios, bloomberg, ft, barchart
+og/twitter image only: 11 of 14 readable   |   with JSON-LD + content-image fallbacks: 13 of 14 readable
+(globenewswire and infoworld only resolve through the new fallbacks; reddit publishes no image)
+Reading: for a mixed news deck roughly 30% of publishers refuse a server read, so 90% real story pictures is not reachable
+from the page alone; the per-source backstop (publisher icon / site image) has to cover that remainder.

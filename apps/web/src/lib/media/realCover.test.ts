@@ -38,6 +38,20 @@ describe('real cover lookups', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('asks again after ten minutes when a page had no picture, and tells the host which page the picture is from', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(preview({ image: null, site: null }));
+    expect(await getRealCover('https://news.test/later')).toBeNull();
+    vi.advanceTimersByTime(9 * 60_000);
+    await getRealCover('https://news.test/later');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockResolvedValueOnce(preview({ image: 'https://cdn.test/hero.jpg', site: 'news.test' }));
+    vi.advanceTimersByTime(2 * 60_000);
+    const cover = await getRealCover('https://news.test/later');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(cover?.src).toContain('&page=https%3A%2F%2Fnews.test%2Flater');
+  });
+
   it('retries a failed lookup after the back-off instead of caching the miss', async () => {
     vi.useFakeTimers();
     fetchMock.mockResolvedValueOnce(preview({}, false));

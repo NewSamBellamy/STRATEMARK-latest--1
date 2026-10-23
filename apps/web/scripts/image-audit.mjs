@@ -34,6 +34,8 @@ const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 await ctx.addInitScript(() => {
   window.__imgAuditOn = true;
   localStorage.setItem('mi.imgAudit', '1');
+  // Past the private-preview access gate (same contract as e2e/access.ts), or every view is the lock screen.
+  localStorage.setItem('mi.access.v1', JSON.stringify({ name: 'audit', kind: 'test', unlockedAt: new Date().toISOString() }));
 });
 const page = await ctx.newPage();
 // Only Google FONTS are blocked (no images); everything else is live.

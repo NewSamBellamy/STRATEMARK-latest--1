@@ -10,7 +10,7 @@
  *   otherwise    → none, and the designed editorial cover holds the frame.
  */
 import { useEffect, useState } from 'react';
-import { previewFromHtml } from '@mi/research/page-preview';
+import { previewDetailFromHtml } from '@mi/research/page-preview';
 import { hasHostedApi, hostedUrl } from '@/lib/hostedApi';
 import { LruCache, fetchWithTimeout } from '@/lib/media/lookupCache';
 import { hasLocalSourceBridge, readAssetSource } from '@/lib/repository/local-source-reader';
@@ -36,6 +36,8 @@ interface CacheEntry {
 
 const CACHE_MAX = 500;
 const FAILURE_RETRY_MS = 60_000;
+/** A page with no picture is asked again after this long: publishers rate-limit and recover, and pages gain images. */
+const NO_PICTURE_RETRY_MS = 10 * 60_000;
 const cache = new LruCache<string, CacheEntry>(CACHE_MAX);
 
 /** The page could not be read, as distinct from a page with no image. */
@@ -51,13 +53,14 @@ async function resolve(pageUrl: string): Promise<RealCover | null> {
     if (!res.ok) throw new LookupFailed(`preview ${res.status}`);
     const p = await res.json() as { image: string | null; site: string | null };
     if (!p.image) return null;
-    return { src: hostedUrl(`image?url=${encodeURIComponent(p.image)}`), publisher: p.site ?? hostOf(p.image) };
+    // `page` is sent to the image host as Referer, which hotlink rules expect.
+    return { src: hostedUrl(`image?url=${encodeURIComponent(p.image)}&page=${encodeURIComponent(pageUrl)}`), publisher: p.site ?? hostOf(p.image) };
   }
   if (hasLocalSourceBridge()) {
     const receipt = await readAssetSource(pageUrl);
     if (receipt.status !== 'retrieved' || !receipt.text) throw new LookupFailed(receipt.status);
     const finalUrl = receipt.finalUrl ?? pageUrl;
-    const p = previewFromHtml(receipt.text, finalUrl);
+    const p = previewDetailFromHtml(receipt.text, finalUrl);
     return p.image ? { src: p.image, publisher: p.site ?? hostOf(finalUrl) } : null;
   }
   return null;
@@ -67,7 +70,10 @@ export function getRealCover(pageUrl: string): Promise<RealCover | null> {
   const hit = cache.get(pageUrl);
   if (hit && Date.now() < hit.retryAt) return hit.promise;
   const entry: CacheEntry = { promise: Promise.resolve(null), retryAt: Number.POSITIVE_INFINITY };
-  entry.promise = resolve(pageUrl).catch(() => {
+  entry.promise = resolve(pageUrl).then((cover) => {
+    if (!cover) entry.retryAt = Date.now() + NO_PICTURE_RETRY_MS;
+    return cover;
+  }, () => {
     entry.retryAt = Date.now() + FAILURE_RETRY_MS;
     return null;
   });

@@ -15,6 +15,7 @@ import { publisherOf } from '@mi/contracts';
 import { AiCover } from '@/components/media/AiCover';
 import { EditorialCover } from '@/components/media/EditorialCover';
 import { printScoped } from '@/lib/print';
+import { PrintBrand, PrintColophon } from '@/components/PrintFrame';
 import { isDirectSource, sourceHref } from '@/lib/sourceHref';
 import { cn } from '@/lib/cn';
 
@@ -119,6 +120,7 @@ export function BriefingReport({
 
   return (
     <article className="brf-print-root mx-auto max-w-3xl">
+      <PrintBrand kind="Daily briefing" />
       {/* ── Masthead ── */}
       <header className="border-y-[3px] border-double border-content/70 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -129,7 +131,7 @@ export function BriefingReport({
             {actions}
             <button
               type="button"
-              onClick={printScoped}
+              onClick={() => printScoped('Daily briefing')}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-[12px] font-medium text-content transition-colors hover:bg-surface-2"
               title="Print or save this briefing as a PDF"
             >
@@ -266,6 +268,7 @@ export function BriefingReport({
         Every update carries its sources; anything without a credible citation was dropped, not
         paraphrased.
       </footer>
+      <PrintColophon />
     </article>
   );
 }
