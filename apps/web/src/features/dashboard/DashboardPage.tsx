@@ -538,7 +538,7 @@ export default function DashboardPage() {
                   </SafeLink>
                 )}
                 </div>
-                <div className="order-1 basis-full lg:order-none lg:col-span-2 lg:col-start-2 lg:row-start-2">
+                <div className="order-1 min-w-0 basis-full lg:order-none lg:col-span-2 lg:col-start-2 lg:row-start-2">
                 {/* One line; the full description is the Summary's first sentence below. */}
                 {headerSubtitle && !restatesHq(headerSubtitle, c.hqLocation) && (
                   <p className="max-w-3xl truncate text-[13px] leading-snug text-muted" title={headerSubtitle}>{headerLine(headerSubtitle)}</p>
