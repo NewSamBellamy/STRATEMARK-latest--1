@@ -131,11 +131,11 @@ describe('the status badge on a card', () => {
     expect(badge.className).toContain('card-sleeve__badge');
     // jsdom does not run :hover or :has, so the stylesheet itself is checked: the badge moves the same distance at the same pace.
     const css = readFileSync(resolve(__dirname, 'collectible.css'), 'utf8');
-    const lift = /\.card-sleeve__open:hover\s*\{[^}]*transform:\s*(translateY\([^)]*\))/.exec(css)?.[1];
+    const lift = /\.card-sleeve__open:hover\s*\{[^}]*transform:[^;]*?(translateY\([^)]*\))/.exec(css)?.[1];
     const badgeLift = /\.card-sleeve:has\(\.card-sleeve__open:hover\) \.card-sleeve__badge\s*\{[^}]*transform:\s*(translateY\([^)]*\))/.exec(css)?.[1];
     expect(lift).toBeTruthy();
     expect(badgeLift).toBe(lift);
-    expect(/\.card-sleeve__open\s*\{[^}]*transform 180ms ease/.test(css)).toBe(true);
-    expect(/\.card-sleeve__badge\s*\{[^}]*transform 180ms ease/.test(css)).toBe(true);
+    expect(/\.card-sleeve__open\s*\{[^}]*transform 160ms ease-out/.test(css)).toBe(true);
+    expect(/\.card-sleeve__badge\s*\{[^}]*transform 160ms ease-out/.test(css)).toBe(true);
   });
 });

@@ -19,6 +19,16 @@ describe('card frame skin', () => {
     expect(screen.getByTestId('collectible-card-front')).toHaveClass('collectible--skin-split');
   });
 
+  it('puts the logo, name, type and edition mark on the acrylic label strip, and only there', () => {
+    const { container, rerender } = renderWithProviders(<CollectibleCard data={data} skin="acrylic" />);
+    const label = container.querySelector('.collectible__label');
+    expect(label).not.toBeNull();
+    expect(label).toHaveTextContent(/STRATEMARK\s*No\.\d{2}/);
+    expect(label).toHaveTextContent(data.company.name);
+    rerender(<CollectibleCard data={data} skin="split" />);
+    expect(container.querySelector('.collectible__label')).toBeNull();
+  });
+
   it.each(['foil', 'embossed', 'acrylic'] as const)('takes the %s skin when asked', (skin) => {
     renderWithProviders(<CollectibleCard data={data} skin={skin} />);
     const front = screen.getByTestId('collectible-card-front');

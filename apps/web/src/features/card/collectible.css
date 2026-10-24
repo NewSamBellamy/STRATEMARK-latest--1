@@ -37,10 +37,10 @@
 }
 /* A status badge sits on the sleeve, not inside the card that lifts, so it rises by the same amount at the same pace. */
 .card-sleeve__badge {
-  transition: transform 180ms ease;
+  transition: transform 160ms ease-out;
 }
 .card-sleeve:has(.card-sleeve__open:hover) .card-sleeve__badge {
-  transform: translateY(-5px);
+  transform: translateY(-4.5px);
 }
 .card-sleeve__open:focus-visible,
 .card-control:focus-visible {
@@ -1172,39 +1172,94 @@
   box-shadow: 0 -1px 0 #00000061, 0 1px 0 #ffffff8c, inset 0 5px 9px -3px #00000057, inset 0 1px 0 #ffffff80;
 }
 
-/* Acrylic slab: a clear case with a glassy reflection and a brand-colour label strip holding the edition line. */
+/* Acrylic slab (frame options page, option 5): a clear case with a reflection, and a brand-colour label strip across the
+   top that carries the logo, the name, the card type and the edition mark. The face sits below the strip. */
 .collectible--skin-acrylic {
-  padding: 9px;
+  padding: 76px 10px 10px;
   border-radius: 21px;
-  border-color: #8fa3b0;
-  background:
-    linear-gradient(115deg, transparent 28%, #ffffff8c 44%, transparent 58%),
-    linear-gradient(145deg, #f7fbfd, #dbe6ec 40%, #f2f7f9 62%, #c9d7df);
+  border: 1px solid #fffffff2;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--c1) 10%, #f8fafb), #e4ebef 34%, color-mix(in oklab, var(--c2) 8%, #f6f9fa) 60%, #d3dce3);
   box-shadow:
-    inset 0 0 0 1px #ffffffe0,
-    inset 0 0 16px #5a7a8d40,
-    0 1px 0 #fff,
-    0 10px 16px -8px #1d3a4a66,
-    0 24px 32px -18px #1d3a4a73;
+    0 0 0 1px #46586480,
+    inset 0 0 0 1px #ffffffe6,
+    inset 0 -2px 5px -2px #3c505f59,
+    0 1.2px 0 #aebcc6, 0 2.4px 0 #8d9ea9,
+    0 4px 4px #00000047,
+    0 18px 24px -11px #00000086;
 }
 .collectible--skin-acrylic::before {
-  inset: 4px;
-  border: 1px solid #465c6a47;
-  border-radius: 17px;
-  box-shadow: 0 0 0 1px #ffffffd9, inset 0 0 10px #3c50602e;
+  inset: 4.8px;
+  border: 1px solid #46586447;
+  border-radius: 16.5px;
+  box-shadow: 0 0 0 1px #ffffffd9, inset 0 0 7px #3c50602e;
+}
+.collectible--skin-acrylic::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(180deg, #ffffffb3, transparent 18%);
 }
 .collectible--skin-acrylic .collectible__paper {
   border-color: #fffdf2;
-  border-radius: 11px;
-  box-shadow: 0 0 0 1px #3c50604d, 0 2px 6px #1d3a4a2e, inset 0 1px 0 #ffffffc2;
+  border-radius: 9px;
+  box-shadow: 0 0 0 1px #2837418c, 0 0 0 3px #cdd6dd, 0 0 0 4px #4658644d, inset 0 1px 0 #ffffffc2, 0 4px 8px -2px #0000004d;
 }
-.collectible--skin-acrylic .collectible__edition {
-  padding: 8px 12px;
-  color: #fff;
-  background: linear-gradient(90deg, var(--c1), var(--c2));
-  text-shadow: 0 1px 1px #0000008c;
-  box-shadow: inset 0 -1px 0 #0000002e, inset 0 1px 0 #ffffff59;
+.collectible--skin-acrylic .collectible__edition,
+.collectible--skin-acrylic .collectible__name { display: none; }
+.collectible--skin-acrylic .collectible__identity { padding-top: 9px; }
+/* The name bar that sat above the picture moved up into the label strip, so the picture needs its own room from the top edge. */
+.collectible--skin-acrylic .collectible__art { margin-top: 9px; }
+.collectible__label {
+  position: absolute;
+  z-index: 3;
+  top: 10.5px;
+  left: 10.5px;
+  right: 10.5px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px 0 8.5px;
+  border-radius: 9px;
+  color: var(--card-ink, #fff);
+  background:
+    linear-gradient(180deg, #ffffff47, transparent 50%, #0000001f),
+    linear-gradient(in oklab 100deg, var(--c1) 0%, var(--c1) 38%, var(--c2) 100%);
+  box-shadow: 0 0 0 1px var(--edge), 0 0 0 2.6px #cdd6dd, 0 0 0 3.6px #4658644d, inset 0 1px 0 #ffffff80, 0 3.5px 6px -2px #0000004d;
 }
+.collectible__lmark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 37px;
+  height: 37px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #fffdf6;
+  box-shadow: 0 0 0 1px #0000002e, inset 0 -1.5px 3px #0000001a, 0 2px 4px #00000040;
+}
+.collectible__lmark > * { width: 68%; height: 68%; }
+.collectible__ltext { min-width: 0; flex: 1; line-height: 1.1; }
+.collectible__ltext b { display: block; font-size: 18px; font-weight: 700; letter-spacing: -0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.collectible__ltext small { display: block; margin-top: 3px; font-size: 7.8px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.85; white-space: nowrap; }
+.collectible__lno {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-end;
+  font-size: 7.2px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.5;
+  color: var(--card-ink2, #14201c);
+  text-align: right;
+}
+.collectible__lno em { font-style: normal; font-size: 10.8px; letter-spacing: 0; }
 
 /* Foil bevel: a thick metallic conic ring that always carries both brand colours, brushed grain, and a band of light
    that follows the pointer (--shine-x, set by pointerSheen.ts). From the frame options page, option 1. */

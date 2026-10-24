@@ -6,7 +6,8 @@ import { faceFooter } from './faceFooter';
 import { Logo } from './Logo';
 import { useSignalHero } from './useSignalHero';
 import { recordImage } from '@/lib/media/imageAudit';
-import { DEFAULT_CARD_SKIN, type CardSkin } from './card-skin';
+import { DEFAULT_CARD_SKIN, inkFor, type CardSkin } from './card-skin';
+import { coverSpec } from '@/features/markets/coverArt';
 
 import { DEFAULT_CARD_ART, MarketCardArt } from './MarketCardArt';
 import './collectible.css';
@@ -83,10 +84,19 @@ export function CollectibleCard({
     <div
       ref={heroRef}
       className={`collectible ${view.signal || artwork ? 'collectible--signal' : ''} ${!view.signal && complete ? 'collectible--foil' : ''} ${frame ? 'collectible--brand' : ''} collectible--skin-${skin}`}
-      style={{ '--card-accent': accent, '--card-highlight': frame ? frame['--card-c2'] : highlight, ...frame } as CSSProperties}
+      style={{ '--card-accent': accent, '--card-highlight': frame ? frame['--card-c2'] : highlight, ...frame, ...(frame ? { '--card-ink': inkFor(frame['--card-c1']), '--card-ink2': inkFor(frameSecondary ? frame['--card-c2'] : null) } : {}) } as CSSProperties}
       data-brand-colors={logoPalette.length > 0 ? logoPalette.join(' ') : framePrimary ? [framePrimary, frameSecondary].filter(Boolean).join(' ') : undefined}
       data-testid="collectible-card-front"
     >
+      {skin === 'acrylic' && (
+        <div className="collectible__label" aria-hidden="true">
+          <span className="collectible__lmark">
+            {!view.signal && <Logo name={view.title} website={data.company?.websiteUrl} bare logoUrl={logoUrlOverride ?? data.company?.logoUrl} className="h-full w-full" />}
+          </span>
+          <span className="collectible__ltext"><b>{view.frontTitle}</b><small>{view.type}</small></span>
+          <span className="collectible__lno">STRATEMARK<em>No.{String(coverSpec(data.card.id).ordinal).padStart(2, '0')}</em></span>
+        </div>
+      )}
       <div className="collectible__paper">
         <div className="collectible__edition">
           <span>STRATEMARK</span>
