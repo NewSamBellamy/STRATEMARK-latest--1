@@ -1,7 +1,7 @@
 import type { PointerEvent } from 'react';
 
-/** Largest lean, in degrees, a grid card takes toward the pointer: enough to read as a held card, not a gimmick. */
-export const MAX_GRID_TILT = 3;
+/** Largest lean, in degrees, a card takes toward the pointer when its skin names no number (`data-tilt`). */
+export const MAX_GRID_TILT = 5;
 
 function reducedMotion(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -20,10 +20,11 @@ export function followPointer(event: PointerEvent<HTMLElement>): void {
   if (box.width === 0 || box.height === 0) return;
   const x = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
   const y = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
+  const max = Number(el.dataset.tilt) || MAX_GRID_TILT;
   el.style.setProperty('--shine-x', `${(x * 100).toFixed(1)}%`);
   el.style.setProperty('--shine-y', `${(y * 100).toFixed(1)}%`);
-  el.style.setProperty('--tilt-x', `${((0.5 - y) * 2 * MAX_GRID_TILT).toFixed(2)}deg`);
-  el.style.setProperty('--tilt-y', `${((x - 0.5) * 2 * MAX_GRID_TILT).toFixed(2)}deg`);
+  el.style.setProperty('--tilt-x', `${((0.5 - y) * 2 * max).toFixed(2)}deg`);
+  el.style.setProperty('--tilt-y', `${((x - 0.5) * 2 * max).toFixed(2)}deg`);
 }
 
 export function settlePointer(event: PointerEvent<HTMLElement>): void {

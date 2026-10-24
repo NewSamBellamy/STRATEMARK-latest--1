@@ -29,6 +29,15 @@ describe('the light on a grid card', () => {
     expect(el.style.getPropertyValue('--tilt-y')).toBe('');
   });
 
+  it('leans as far as its skin allows', () => {
+    motion(false);
+    const el = sleeve();
+    el.dataset.tilt = '9';
+    followPointer(move(el, 'mouse', 300, 200));
+    expect(el.style.getPropertyValue('--tilt-x')).toBe('9.00deg');
+    expect(el.style.getPropertyValue('--tilt-y')).toBe('9.00deg');
+  });
+
   it('stays still for touch and under reduced motion', () => {
     motion(false);
     const touched = sleeve();

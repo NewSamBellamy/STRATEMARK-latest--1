@@ -8,7 +8,7 @@ import { useSaveCard, useSavedCards, useUnsaveCard } from '@/hooks/data';
 import { useDashboardHydrating } from '@/lib/living/useDashboardWarm';
 import { cn } from '@/lib/cn';
 import { CollectibleCard } from './CollectibleCard';
-import type { CardSkin } from './card-skin';
+import { DEFAULT_CARD_SKIN, SKIN_TILT, type CardSkin } from './card-skin';
 import { buildCardView } from './card-view';
 import { followPointer, settlePointer } from './pointerSheen';
 
@@ -20,7 +20,7 @@ export interface GameCardProps {
   onShare?: () => void;
   hideActions?: boolean;
   className?: string;
-  /** Frame skin for where the card lives (deck split by default, Saved embossed, Today acrylic). */
+  /** Frame skin for where the card lives (deck split by default, Saved foil, Today acrylic). */
   skin?: CardSkin;
   /** The card's OVR against its deck. Omit and it is rated on its own (tier only). */
 }
@@ -75,7 +75,7 @@ export function GameCard({ data, onOpen, onShare, hideActions, deckStatus, class
         Preparing company page
       </span>
     )}
-    {onOpen ? <button type="button" className="card-sleeve__open" onClick={onOpen}
+    {onOpen ? <button type="button" className="card-sleeve__open" onClick={onOpen} data-tilt={SKIN_TILT[skin ?? DEFAULT_CARD_SKIN]}
       onPointerMove={followPointer} onPointerLeave={settlePointer}
       aria-label={`${view.title} — ${view.type} card`}>
       <CollectibleCard data={data} view={view} skin={skin} logoRetryNonce={logoRetryNonce}

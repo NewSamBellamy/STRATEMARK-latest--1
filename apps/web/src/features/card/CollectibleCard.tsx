@@ -32,7 +32,7 @@ export function CollectibleCard({
   logoRetryNonce?: number;
   logoUrlOverride?: string | null;
   onLogoAvailabilityChange?: (available: boolean) => void;
-  /** Frame skin for where the card lives: deck (split, default), Saved (embossed), Today (acrylic). */
+  /** Frame skin for where the card lives: deck (split, default), Saved (foil), Today (acrylic). */
   skin?: CardSkin;
 }) {
   const artwork = DEFAULT_CARD_ART[data.card.cardType];

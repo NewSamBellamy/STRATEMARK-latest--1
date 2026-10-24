@@ -19,7 +19,7 @@ describe('card frame skin', () => {
     expect(screen.getByTestId('collectible-card-front')).toHaveClass('collectible--skin-split');
   });
 
-  it.each(['embossed', 'acrylic'] as const)('takes the %s skin for Saved and Today', (skin) => {
+  it.each(['foil', 'embossed', 'acrylic'] as const)('takes the %s skin when asked', (skin) => {
     renderWithProviders(<CollectibleCard data={data} skin={skin} />);
     const front = screen.getByTestId('collectible-card-front');
     expect(front).toHaveClass(`collectible--skin-${skin}`);

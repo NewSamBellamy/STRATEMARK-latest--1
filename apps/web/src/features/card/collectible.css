@@ -25,10 +25,14 @@
     transform 180ms ease,
     filter 180ms ease;
 }
-/* Under a mouse the card leans a few degrees toward the pointer (pointerSheen.ts
-   sets --tilt-x/y); without a pointer the vars are unset and it simply lifts. */
+/* Under a mouse the card lifts and leans toward the pointer, as far as its skin allows (pointerSheen.ts
+   sets --tilt-x/y from data-tilt); without a pointer the vars are unset and it simply lifts. */
+.card-sleeve__open {
+  transition: transform 160ms ease-out, filter 180ms ease;
+  will-change: transform;
+}
 .card-sleeve__open:hover {
-  transform: translateY(-5px) perspective(1100px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+  transform: perspective(1000px) translateY(-4.5px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
   filter: saturate(1.03);
 }
 /* A status badge sits on the sleeve, not inside the card that lifts, so it rises by the same amount at the same pace. */
@@ -1201,3 +1205,55 @@
   text-shadow: 0 1px 1px #0000008c;
   box-shadow: inset 0 -1px 0 #0000002e, inset 0 1px 0 #ffffff59;
 }
+
+/* Foil bevel: a thick metallic conic ring that always carries both brand colours, brushed grain, and a band of light
+   that follows the pointer (--shine-x, set by pointerSheen.ts). From the frame options page, option 1. */
+.collectible--skin-foil {
+  padding: 14px;
+  border-color: transparent;
+  background:
+    linear-gradient(115deg, transparent calc(var(--shine-x, 30%) - 20%), #ffffff9e calc(var(--shine-x, 30%) - 3%), transparent calc(var(--shine-x, 30%) + 14%)),
+    conic-gradient(in oklab from 215deg at 50% 50%,
+      var(--c1-hi) 0%, var(--c1) 8%, var(--c1-lo) 19%, var(--c1) 29%, var(--mid) 38%, var(--c2-hi) 48%,
+      var(--c2) 58%, var(--c2-lo) 69%, var(--c2) 79%, var(--mid) 89%, var(--c1-hi) 100%);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    inset 0 1.6px 0 #ffffffb3,
+    inset 0 -1.6px 0 #00000052,
+    inset 1.4px 0 0 #ffffff42,
+    inset -1.4px 0 0 #00000033,
+    0 1px 0 color-mix(in oklab, var(--c2) 55%, #000),
+    0 2px 2px #0000003d,
+    0 16px 22px -12px #00000090;
+}
+.collectible--skin-foil::before {
+  display: none;
+}
+.collectible--skin-foil::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  mix-blend-mode: overlay;
+  background: repeating-linear-gradient(98deg, #ffffff21 0 1px, #00000012 1px 2px, transparent 2px 4px);
+}
+.collectible--skin-foil .collectible__paper {
+  border-color: transparent;
+  box-shadow: 0 0 0 1px #0000006b, 0 0 0 2.6px #ffffff80, 0 0 0 3.6px #00000033, inset 0 1px 0 #ffffffc2, inset 0 0 18px #5d63430c;
+}
+
+/* The light over the card, per skin: a quiet soft-light sheen on split and foil that brightens under the pointer,
+   and on acrylic a glassy reflection that slides across with it. */
+.collectible--skin-split .collectible__foil { opacity: 0.16; }
+.collectible--skin-foil .collectible__foil { opacity: 0.18; }
+.card-sleeve__open:hover .collectible--skin-split .collectible__foil,
+.card-sleeve__open:hover .collectible--skin-foil .collectible__foil { opacity: 0.4; }
+.collectible--skin-acrylic .collectible__foil {
+  z-index: 5;
+  mix-blend-mode: normal;
+  opacity: 0.4;
+  background: linear-gradient(106deg, transparent 22%, #ffffff80 34%, #ffffff0d 41%, #ffffff47 56%, transparent 66%) var(--shine-x, 30%) 0 / 260% 100% no-repeat;
+}
+.card-sleeve__open:hover .collectible--skin-acrylic .collectible__foil { opacity: 0.75; }
