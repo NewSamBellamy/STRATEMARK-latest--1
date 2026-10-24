@@ -8,6 +8,7 @@ import { formatDate, formatRelative } from '@/lib/format';
 import { safeHttpUrl } from '@/lib/sourceHref';
 import { isAnotherWindowError, MOVE_STALE_DAYS, moveAgeDays, moveDayBucket, type MoveDayBucket } from '@mi/research';
 import { useAnotherWindow, useFollows, useMarkMoveRead, useMarkMovesRead, useMoves, useRefreshMoves, useUnfollowCompany } from '@/hooks/today';
+import { TodayCardGrid } from './TodayCardGrid';
 import { TodayCompanyView } from './TodayCompanyView';
 
 const KIND_LABEL: Record<MoveKind, string> = {
@@ -99,6 +100,11 @@ export default function TodayPage() {
   const isNew = (move: CompanyMove) => !move.readAt && (!since || move.foundAt > since);
   const newCount = all.filter(isNew).length;
   const unreadCount = all.filter((move) => !move.readAt).length;
+  const unreadByCompany = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const move of moves.data ?? []) if (!move.readAt) counts.set(move.companyId, (counts.get(move.companyId) ?? 0) + 1);
+    return counts;
+  }, [moves.data]);
   const shown = useMemo(() => (moves.data ?? []).filter((move) =>
     filter === 'all' ? true : filter === 'unread' ? !move.readAt : move.kind === filter), [moves.data, filter]);
   const shownUnread = shown.filter((move) => !move.readAt);
@@ -220,6 +226,7 @@ export default function TodayPage() {
         <TodayCompanyView key={selected} companyId={selected} since={since} />
       ) : (
         <>
+          {followCount > 0 && <TodayCardGrid follows={follows.data ?? []} unreadByCompany={unreadByCompany} onOpen={select} />}
           {all.length > 0 && (
             <div className="mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
               <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filter moves">
