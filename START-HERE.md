@@ -1,9 +1,7 @@
-# Stratemark / Keystone
+# Stratemark
 
-Read [verified migration state](docs/ZCODE-TRANSFER-VERIFIED.md) first for the dated GitHub branch, saved WIP checkpoint and linked-worktree/clone instructions.
+**Latest branch: `release/beta-final-2026-10-24`** (written 2026-10-24, same commit as `beta/night-tip`). `main` is not the latest.
 
-Current recovery and GLM / Z Code migration entry point:
+Read [docs/START-HERE.md](docs/START-HERE.md) first: current state, how to run it, and what is still open. Then read `AGENTS.md` before editing.
 
-[Read the current handoff and ordered recovery plan](docs/STRATEMARK-ZCODE-HANDOFF.md).
-
-Read `AGENTS.md` before editing. Current implementation includes unfinished, unverified changes; inspect the working tree. Historical plans and test totals do not establish beta readiness.
+Older handoffs in this repo (`HANDOFF-CLAUDE-CODE.md`, `HANDOVER-ZCODE-2026-10-22.md`, `docs/ZCODE-TRANSFER-VERIFIED.md`, `docs/STRATEMARK-ZCODE-HANDOFF.md`) are history. They name older branches and older test counts, so do not follow their branch instructions.

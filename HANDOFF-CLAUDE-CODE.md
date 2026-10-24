@@ -1,3 +1,5 @@
+> **Historical (2026-10-08).** The latest branch is `release/beta-final-2026-10-24`; start from `docs/START-HERE.md`. The branch names below are out of date.
+
 # Stratemark — Z Code handoff to Claude Code
 
 **Handoff written:** 2026-10-08, ~00:15 (end of the third overnight autonomous session).
